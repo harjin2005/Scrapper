@@ -40,10 +40,34 @@ MONTHS = {
 
 
 def _clean_address(addr: str) -> str:
-    """Strip trailing OCR account-number garbage (long digit sequences)."""
-    addr = re.sub(r"\s+0{4,}\d+", "", addr)   # e.g. " 0000010783538"
-    addr = re.sub(r"\s+\d{8,}$", "", addr)     # trailing long number
+    addr = re.sub(r"\s+0{4,}\d+", "", addr)   # strip trailing OCR account numbers
+    addr = re.sub(r"\s+\d{8,}$", "", addr)
     return addr.strip()
+
+
+_ADDR_BOILERPLATE = re.compile(
+    r"(NOTICE\s+OF|DEED\s+OF\s+TRUST|SUBSTITUTE\s+TRUSTEE|TRUSTEE'S|"
+    r"recorded\s+on|Official\s+Public\s+Records|REAL\s+PROPERTY|"
+    r"Earliest\s+Time|Ipm|Deed\s+of\s+Trust)",
+    re.IGNORECASE,
+)
+_YEAR_PREFIX = re.compile(r"^20\d\d\b")
+_VALID_STREET = re.compile(
+    r"^\d{1,5}\s+\w",   # starts with 1-5 digit street number then word char
+)
+
+
+def _is_valid_address(addr: str) -> bool:
+    if not addr or len(addr) < 6:
+        return False
+    if _YEAR_PREFIX.match(addr):
+        return False
+    if _ADDR_BOILERPLATE.search(addr):
+        return False
+    # Must start with a digit (street number) or look like a real address
+    if not re.match(r"^\d", addr) and not re.search(r"\d{1,5}\s+\w", addr):
+        return False
+    return True
 
 
 class PDFExtractor:
@@ -99,21 +123,21 @@ class PDFExtractor:
         return filename.split("_")[0]
 
     def _extract_address(self, text: str) -> Optional[str]:
-        # Priority 1: explicit "Property Address:" or "commonly known as"
+        # Priority 1: explicit label — "commonly known as" or "Property Address:"
         for pat in [
             r"[Cc]ommonly\s+known\s+as\s*:?\s*([^\n]+)",
             r"[Pp]roperty\s+[Aa]ddress\s*:?\s*([^\n]+)",
         ]:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
-                addr = m.group(1).strip().rstrip(".")
-                if len(addr) > 5:
-                    return _clean_address(addr)
+                addr = _clean_address(m.group(1).strip().rstrip("."))
+                # Strip leading date prefix e.g. "May 30, 2020 201 WOODLANDS CT"
+                addr = re.sub(r"^(?:[A-Za-z]+ \d+,? )?20\d\d\s+", "", addr).strip()
+                if _is_valid_address(addr):
+                    return addr
 
-        # Priority 2: address block at top of document — appears before "NOTICE OF"
-        # Format: "112 PARAGON CT 0000010783538\nLAKEWAY, TX 78734"
+        # Priority 2: address block at top — street line then city/state/zip
         top = text[:600]
-        # Street line + city/state/zip on next line
         m = re.search(
             r"(\d+\s+[A-Z0-9][A-Z0-9 ]+(?:BLVD|DRIVE|DR|STREET|ST|AVE|AVENUE|LN|LANE|RD|ROAD|CT|COURT|WAY|CIR|PKWY|HWY|TRAIL|TRL|PASS|LOOP|CROSSING)[^\n]*)\n([^\n]*\bTX\b[^\n]*)",
             top, re.IGNORECASE
@@ -121,15 +145,19 @@ class PDFExtractor:
         if m:
             street = re.sub(r"\s+\d{6,}", "", m.group(1)).strip()
             city_state = m.group(2).strip()
-            return f"{street}, {city_state}"
+            addr = f"{street}, {city_state}"
+            if _is_valid_address(addr):
+                return addr
 
         # Priority 3: street number + known suffix anywhere in text
-        m = re.search(
-            r"(\d{2,5}\s+[A-Z][A-Z0-9 ]+(?:BLVD|DRIVE|DR|STREET|ST|AVE|AVENUE|LN|LANE|RD|ROAD|CT|COURT|WAY|CIR|PKWY|HWY|TRAIL|TRL|PASS|LOOP)[^\n,]*)",
+        # Exclude year-like numbers (2000-2099) as street numbers
+        for m in re.finditer(
+            r"(\d{1,5}\s+[A-Z][A-Z0-9 ]+(?:BLVD|DRIVE|DR|STREET|ST|AVE|AVENUE|LN|LANE|RD|ROAD|CT|COURT|WAY|CIR|PKWY|HWY|TRAIL|TRL|PASS|LOOP)[^\n,]*)",
             text, re.IGNORECASE
-        )
-        if m:
-            return _clean_address(m.group(1).strip())
+        ):
+            addr = _clean_address(m.group(1).strip())
+            if _is_valid_address(addr) and not _YEAR_PREFIX.match(addr):
+                return addr
 
         return None
 
