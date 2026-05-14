@@ -66,9 +66,23 @@ class GoogleDriveUploader:
         folder = self.service.files().create(body=meta, fields="id").execute()
         return folder["id"]
 
+    def _find_existing_file(self, folder_id: str, filename: str) -> Optional[str]:
+        query = (
+            f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+        )
+        results = self.service.files().list(q=query, fields="files(id)").execute()
+        files = results.get("files", [])
+        return files[0]["id"] if files else None
+
     def upload(self, pdf_path: str, run_date: date) -> str:
         dated_folder_id = self._get_dated_folder(run_date)
         filename = Path(pdf_path).name
+
+        existing_id = self._find_existing_file(dated_folder_id, filename)
+        if existing_id:
+            log.info("pdf_already_on_drive", filename=filename, file_id=existing_id)
+            return self._make_shareable_link(existing_id)
+
         file_metadata = {"name": filename, "parents": [dated_folder_id]}
         media = MediaFileUpload(pdf_path, mimetype="application/pdf")
         uploaded = (

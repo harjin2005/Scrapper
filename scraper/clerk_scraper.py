@@ -1,14 +1,31 @@
 from __future__ import annotations
+import base64
+import re
+import random as _random
+import shutil
+import subprocess
 import asyncio
 from datetime import date
 from pathlib import Path
 from typing import Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
-from playwright.async_api import async_playwright, Page
+from playwright.async_api import async_playwright, Page, BrowserContext
 from scraper.config import Config
 from scraper.logger import get_logger
 
 log = get_logger("clerk_scraper")
+
+CHROME_EXE = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+CHROME_PROFILE = str(Path.home() / "AppData/Local/Google/Chrome/User Data")
+TEMP_PROFILE = str(Path("config/chrome_scrape_profile").resolve())
+CDP_PORT = 9223
+
+HOME_URL = "https://www.tccsearch.org/"
+SEARCH_URL = "https://www.tccsearch.org/RealEstate/SearchEntry.aspx"
+
+# Checkbox index for "NOTICE OF SUBSTITUTE TRUSTEE SALE" in the doc type list
+FORECLOSURE_CHECKBOX_ID = "cphNoMargin_f_dclDocType_72"
+SEARCH_BTN_ID = "cphNoMargin_SearchButtons1_btnSearch"
 
 
 class ClerkScraper:
@@ -28,96 +45,221 @@ class ClerkScraper:
     def _build_pdf_filename(self, instrument_no: str) -> str:
         return f"{instrument_no}_NOTICE_OF_SUBSTITUTE_TRUSTEE_SALE.pdf"
 
+    def _copy_chrome_profile(self) -> None:
+        temp = Path(TEMP_PROFILE)
+        if temp.exists():
+            shutil.rmtree(temp, ignore_errors=True)
+        temp.mkdir(parents=True, exist_ok=True)
+        src = Path(CHROME_PROFILE) / "Default"
+        dst = temp / "Default"
+        if src.exists():
+            log.info("copying_chrome_profile")
+            shutil.copytree(str(src), str(dst), ignore=shutil.ignore_patterns(
+                "Cache", "Code Cache", "GPUCache", "Service Worker",
+                "CacheStorage", "VideoDecodeStats", "*.log", "*.tmp",
+                "blob_storage", "databases",
+            ))
+
     async def run(self, run_date: Optional[date] = None) -> list[tuple[str, str]]:
-        """Returns list of (instrument_no, local_pdf_path) tuples."""
         run_date = run_date or date.today()
         from_date, to_date = self._build_date_range(run_date)
         download_dir = self._get_dated_download_path(run_date)
         log.info("clerk_search_start", from_date=from_date, to_date=to_date)
 
-        results: list[tuple[str, str]] = []
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=self.config.headless)
-            context = await browser.new_context(accept_downloads=True)
-            page = await context.new_page()
-            page.set_default_timeout(self.config.request_timeout_ms)
+        self._copy_chrome_profile()
+        proc = None
+        proc = subprocess.Popen([
+            CHROME_EXE,
+            f"--remote-debugging-port={CDP_PORT}",
+            f"--user-data-dir={TEMP_PROFILE}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--start-minimized",
+        ])
+        await asyncio.sleep(3)
 
-            try:
-                await self._navigate_and_search(page, from_date, to_date)
-                results = await self._collect_all_pages(page, download_dir)
-            except Exception as exc:
-                log.error("clerk_scraper_failed", error=str(exc))
-                raise
-            finally:
-                await browser.close()
+        results: list[tuple[str, str]] = []
+        try:
+            async with async_playwright() as pw:
+                try:
+                    browser = await pw.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
+                except Exception as exc:
+                    raise RuntimeError(f"Chrome CDP connect failed: {exc}") from exc
+
+                context = browser.contexts[0] if browser.contexts else await browser.new_context()
+                page = context.pages[0] if context.pages else await context.new_page()
+                page.set_default_timeout(self.config.request_timeout_ms)
+
+                try:
+                    await self._navigate_and_search(page, from_date, to_date)
+                    results = await self._collect_all_pages(page, download_dir, context)
+                except Exception as exc:
+                    log.error("clerk_scraper_failed", error=str(exc))
+                    raise
+                finally:
+                    await browser.close()
+        finally:
+            if proc:
+                proc.terminate()
+            shutil.rmtree(TEMP_PROFILE, ignore_errors=True)
 
         log.info("clerk_search_done", total_pdfs=len(results))
         return results
 
-    async def _navigate_and_search(self, page: Page, from_date: str, to_date: str) -> None:
-        await page.goto(self.config.clerk_portal_url)
-        log.info("portal_loaded")
-
-        doc_type = self.config.search_doc_type
+    async def _wait_for_load(self, page: Page) -> None:
         try:
-            await page.select_option(
-                "select[name*='DocType'], select[id*='DocType']",
-                label=doc_type,
-                timeout=5000,
-            )
+            await page.wait_for_load_state("networkidle", timeout=20000)
         except Exception:
-            await page.fill("input[name*='DocType'], input[id*='DocType']", doc_type)
+            await asyncio.sleep(2)
 
-        date_from_selector = (
-            "input[name*='DateFrom'], input[id*='DateFrom'], "
-            "input[name*='FiledDateFrom'], input[id*='FiledDateFrom']"
-        )
-        date_to_selector = (
-            "input[name*='DateTo'], input[id*='DateTo'], "
-            "input[name*='FiledDateTo'], input[id*='FiledDateTo']"
-        )
-        await page.fill(date_from_selector, from_date)
-        await page.fill(date_to_selector, to_date)
+    async def _wait_for_title(self, page: Page, not_contains: str, timeout_ms: int = 30000) -> str:
+        elapsed = 0
+        while elapsed < timeout_ms:
+            try:
+                title = await page.title()
+                if not_contains not in title:
+                    return title
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+            elapsed += 1000
+        raise RuntimeError(f"Timed out waiting for title to not contain '{not_contains}'")
 
-        await page.click("input[type='submit'], button[type='submit'], input[value*='Search']")
-        await page.wait_for_load_state("networkidle")
-        log.info("search_submitted", from_date=from_date, to_date=to_date)
+    async def _navigate_and_search(self, page: Page, from_date: str, to_date: str) -> None:
+        # Step 1: load home page, pass Cloudflare
+        log.info("navigating_to_home")
+        await page.goto(HOME_URL, wait_until="domcontentloaded")
+        title = await self._wait_for_title(page, "Just a moment", timeout_ms=120000)
+        log.info("cloudflare_cleared", title=title)
 
-    async def _collect_all_pages(self, page: Page, download_dir: str) -> list[tuple[str, str]]:
-        results: list[tuple[str, str]] = []
-        page_num = 1
-        while True:
-            log.info("processing_results_page", page_num=page_num)
-            page_results = await self._download_pdfs_on_page(page, download_dir)
-            results.extend(page_results)
+        # Step 2: click disclaimer accept link if present
+        await self._wait_for_load(page)
+        accept = page.locator("#cph1_lnkAccept")
+        if await accept.count() > 0:
+            log.info("clicking_disclaimer_accept")
+            await accept.click()
+            await asyncio.sleep(2)
+            await self._wait_for_load(page)
 
-            next_btn = page.locator(
-                "a:has-text('Next'), input[value='Next'], a[id*='Next'], a[aria-label*='next']"
-            )
-            if await next_btn.count() > 0:
-                await next_btn.first.click()
-                await page.wait_for_load_state("networkidle")
-                page_num += 1
+        # Step 3: navigate to search form
+        log.info("navigating_to_search_form")
+        await page.goto(SEARCH_URL, wait_until="domcontentloaded")
+        await self._wait_for_load(page)
+        try:
+            title = await page.title()
+            log.info("search_form_loaded", title=title)
+        except Exception:
+            pass
+
+        await self._fill_and_submit_form(page, from_date, to_date)
+
+    async def _fill_and_submit_form(self, page: Page, from_date: str, to_date: str) -> None:
+        # Check the NOTICE OF SUBSTITUTE TRUSTEE SALE checkbox
+        checkbox = page.locator(f"#{FORECLOSURE_CHECKBOX_ID}")
+        if await checkbox.count() > 0:
+            await checkbox.check()
+            log.info("doc_type_checked")
+        else:
+            # Fallback: find by label text
+            label = page.locator("label", has_text="NOTICE OF SUBSTITUTE TRUSTEE SALE")
+            if await label.count() > 0:
+                await label.click()
+                log.info("doc_type_checked_via_label")
             else:
+                log.warning("doc_type_checkbox_not_found")
+
+        # Fill date pickers (Infragistics ElectricBlue date editors)
+        date_inputs = page.locator("input.igte_ElectricBlueEditInContainer")
+        count = await date_inputs.count()
+        if count >= 2:
+            # FROM date
+            await date_inputs.nth(0).click(click_count=3)
+            await date_inputs.nth(0).type(from_date)
+            await date_inputs.nth(0).press("Tab")
+            await asyncio.sleep(0.5)
+            # TO date
+            await date_inputs.nth(1).click(click_count=3)
+            await date_inputs.nth(1).type(to_date)
+            await date_inputs.nth(1).press("Tab")
+            await asyncio.sleep(0.5)
+            log.info("dates_filled", from_date=from_date, to_date=to_date)
+        else:
+            log.warning("date_inputs_not_found", count=count)
+
+        # Click search — wait for the ASP.NET form post navigation to complete
+        async with page.expect_navigation(wait_until="networkidle", timeout=60000):
+            await page.evaluate(f"document.getElementById('{SEARCH_BTN_ID}').click()")
+        log.info("search_submitted")
+
+    async def _get_total_pages(self, page: Page) -> int:
+        """Read the page-select dropdown to learn total page count."""
+        try:
+            count = await page.evaluate("""() => {
+                const sel = document.getElementById('cphNoMargin_cphNoMargin_OptionsBar1_ItemList')
+                          || document.getElementById('cphNoMargin_cphNoMargin_OptionsBar2_ItemList');
+                if (!sel) return 1;
+                return sel.options.length;
+            }""")
+            return int(count) if count and int(count) > 0 else 1
+        except Exception:
+            return 1
+
+    async def _collect_all_pages(self, page: Page, download_dir: str, context: BrowserContext) -> list[tuple[str, str]]:
+        results: list[tuple[str, str]] = []
+        await asyncio.sleep(2)
+        await self._wait_for_load(page)
+
+        # Discover total pages from the dropdown on the results page
+        total_pages = await self._get_total_pages(page)
+        log.info("pagination_detected", total_pages=total_pages)
+
+        # Page 1 is already loaded
+        log.info("processing_results_page", page_num=1)
+        results.extend(await self._download_pdfs_on_page(page, download_dir, context))
+
+        # Navigate directly to SearchResults.aspx?pg=N for pages 2+
+        base_url = "https://www.tccsearch.org/RealEstate/SearchResults.aspx"
+        for page_num in range(2, total_pages + 1):
+            url = f"{base_url}?pg={page_num}"
+            log.info("processing_results_page", page_num=page_num, url=url)
+            try:
+                await page.goto(url, wait_until="domcontentloaded")
+                await self._wait_for_load(page)
+                await asyncio.sleep(1)
+                page_results = await self._download_pdfs_on_page(page, download_dir, context)
+                if not page_results:
+                    log.info("empty_page_stopping", page_num=page_num)
+                    break
+                results.extend(page_results)
+            except Exception as exc:
+                log.error("page_navigation_failed", page_num=page_num, error=str(exc))
                 break
 
         return results
 
-    async def _download_pdfs_on_page(self, page: Page, download_dir: str) -> list[tuple[str, str]]:
-        results: list[tuple[str, str]] = []
-        links = page.locator("table tr td a[href*='InstrumentNo'], table tr td a[href*='instrument']")
-        count = await links.count()
+    async def _download_pdfs_on_page(self, page: Page, download_dir: str, context: BrowserContext) -> list[tuple[str, str]]:
+        # Extract (instrument_no, global_id) pairs from result links
+        link_data: list[dict] = await page.evaluate("""() => {
+            const links = document.querySelectorAll('a[href*="global_id"][href*="type=dtl"]');
+            return Array.from(links).map(a => ({
+                text: a.innerText.trim(),
+                href: a.getAttribute('href') || ''
+            }));
+        }""")
+        log.info("found_result_links", count=len(link_data))
 
-        for i in range(count):
-            link = links.nth(i)
-            instrument_no = (await link.inner_text()).strip()
-            if not instrument_no:
+        results: list[tuple[str, str]] = []
+        for item in link_data:
+            instrument_no = item["text"]
+            href = item["href"]
+            if not instrument_no or "global_id=" not in href:
                 continue
+            global_id = href.split("global_id=")[1].split("&")[0]
             try:
-                local_path = await self._download_single_pdf(page, link, instrument_no, download_dir)
+                local_path = await self._download_single_pdf(instrument_no, global_id, download_dir, context)
                 if local_path:
                     results.append((instrument_no, local_path))
-                    log.info("pdf_downloaded", instrument_no=instrument_no)
+                    log.info("pdf_downloaded", instrument_no=instrument_no, global_id=global_id)
             except Exception as exc:
                 log.error("pdf_download_failed", instrument_no=instrument_no, error=str(exc))
 
@@ -125,17 +267,82 @@ class ClerkScraper:
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def _download_single_pdf(
-        self, page: Page, link, instrument_no: str, download_dir: str
+        self, instrument_no: str, global_id: str, download_dir: str, context: BrowserContext
     ) -> Optional[str]:
         filename = self._build_pdf_filename(instrument_no)
-        dest_path = str(Path(download_dir) / filename)
+        dest_path = Path(download_dir) / filename
 
-        if Path(dest_path).exists():
+        if dest_path.exists():
             log.info("pdf_already_exists", instrument_no=instrument_no)
-            return dest_path
+            return str(dest_path)
 
-        async with page.expect_download() as dl_info:
-            await link.click()
-        download = await dl_info.value
-        await download.save_as(dest_path)
-        return dest_path
+        # Step 1: load printHelper HTML page to get the server-generated r= value
+        ph_html_url = (
+            f"https://www.tccsearch.org/Controls/printHelper.aspx"
+            f"?t=P&id={global_id}&rnd={_random.random()}"
+        )
+        html_page = await context.new_page()
+        try:
+            await html_page.goto(ph_html_url, wait_until="domcontentloaded")
+            await asyncio.sleep(2)
+            html_src = await html_page.evaluate("() => document.documentElement.outerHTML")
+        finally:
+            await html_page.close()
+
+        m = re.search(r"printHelper\.aspx\?r=([\d.]+)", html_src)
+        if not m:
+            raise RuntimeError(f"No r= in printHelper response for {global_id}")
+        r_val = m.group(1)
+        pdf_r_url = f"https://www.tccsearch.org/Controls/printHelper.aspx?r={r_val}"
+        log.info("pdf_r_url_found", instrument_no=instrument_no, r_val=r_val)
+
+        # Step 2: intercept the PDF response via CDP Fetch.enable before
+        #         Chrome's PDF viewer can wrap it in extension HTML
+        dl_page = await context.new_page()
+        cdp = await context.new_cdp_session(dl_page)
+        await cdp.send("Fetch.enable", {
+            "patterns": [
+                {"urlPattern": "**/Controls/printHelper.aspx?r=*", "requestStage": "Response"}
+            ]
+        })
+
+        loop = asyncio.get_running_loop()
+        pdf_future: asyncio.Future = loop.create_future()
+
+        async def _on_paused(params: dict) -> None:
+            req_id = params["requestId"]
+            hdrs = {h["name"].lower(): h["value"] for h in params.get("responseHeaders", [])}
+            ct = hdrs.get("content-type", "")
+            if "pdf" in ct.lower():
+                try:
+                    res = await cdp.send("Fetch.getResponseBody", {"requestId": req_id})
+                    body_data = res.get("body", "")
+                    is_b64 = res.get("base64Encoded", False)
+                    pdf_bytes = base64.b64decode(body_data) if is_b64 else body_data.encode("latin-1")
+                    if not pdf_future.done():
+                        pdf_future.set_result(pdf_bytes)
+                except Exception as exc:
+                    if not pdf_future.done():
+                        pdf_future.set_exception(exc)
+            try:
+                await cdp.send("Fetch.continueRequest", {"requestId": req_id})
+            except Exception:
+                pass
+
+        cdp.on("Fetch.requestPaused", lambda p: asyncio.ensure_future(_on_paused(p)))
+
+        try:
+            await dl_page.goto(pdf_r_url, wait_until="domcontentloaded")
+            pdf_bytes = await asyncio.wait_for(pdf_future, timeout=60)
+            dest_path.write_bytes(pdf_bytes)
+            log.info("pdf_saved", instrument_no=instrument_no, bytes=len(pdf_bytes))
+            return str(dest_path)
+        except Exception as exc:
+            log.error("pdf_fetch_failed", instrument_no=instrument_no, error=str(exc))
+            raise
+        finally:
+            try:
+                await cdp.detach()
+            except Exception:
+                pass
+            await dl_page.close()

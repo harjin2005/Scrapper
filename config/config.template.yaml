@@ -1,0 +1,24 @@
+clerk_portal_url: "https://www.tccsearch.org/RealEstate/SearchEntry.aspx?e=newSession"
+cad_url: "https://travis.prodigycad.com/property-search"
+tax_url: "https://tax-office.traviscountytx.gov/properties/taxes/account-search"
+
+# --- REQUIRED: Fill in your Google IDs ---
+# Google Sheets: open the spreadsheet, copy the ID from the URL
+# URL format: https://docs.google.com/spreadsheets/d/{SHEETS_ID}/edit
+google_sheets_id: "YOUR_GOOGLE_SHEETS_ID_HERE"
+
+# Google Drive: open the PDFs folder, copy the ID from the URL
+# URL format: https://drive.google.com/drive/folders/{FOLDER_ID}
+google_drive_folder_id: "YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE"
+
+# --- DO NOT CHANGE these paths ---
+google_credentials_path: "config/credentials.json"
+google_token_path: "config/token.json"
+downloads_dir: "downloads"
+logs_dir: "logs"
+
+# --- Search parameters (no changes needed) ---
+search_doc_type: "NOTICE OF SUBSTITUTE TRUSTEE SALE"
+retry_attempts: 3
+request_timeout_ms: 30000
+headless: false

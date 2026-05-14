@@ -1,0 +1,47 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Google OAuth tokens and credentials (never commit)
+config/token.json
+config/credentials.json
+config/browser_state.json
+
+# Chrome debug profiles (large, machine-specific)
+config/chrome_*/
+
+# Local downloads and logs (runtime data, not source)
+downloads/
+logs/
+
+# Dev/debug inspection scripts
+inspect_*.py
+capture_*.py
+solve_*.py
+extract_cookies.py
+demo_*.py
+
+# Test artifacts from dev
+*.html
+portal_screenshot.png
+test_download*.pdf
+test_fetch*.pdf
+test_download_single.py
+test_fetch2.py
+test_fetch_intercept.py
+test_pagination.py
+test_route_intercept.py
+test_scraper_run.py
+test_pipeline_smoke.py
+
+# Other dev files
+scraper/compressor.py
+scraper/llm_extractor.py
+
+# IDE
+.vscode/
+.idea/
+
+# Claude AI memory
+.claude/

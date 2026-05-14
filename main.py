@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -55,6 +55,10 @@ async def run_pipeline(config: Config, run_date: Optional[date] = None) -> objec
         try:
             drive_link = drive.upload(local_path, run_date)
             record = extractor.extract(local_path, pdf_link=drive_link)
+            # Clerk portal instrument number is authoritative — overrides any
+            # instrument number found inside the PDF text (which is typically
+            # the deed of trust number, a different document entirely)
+            record.instrument_no = instrument_no
 
             try:
                 cad_data = await cad.lookup(record.address, record.grantor)
