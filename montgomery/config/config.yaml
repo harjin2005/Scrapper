@@ -2,8 +2,8 @@ tax_forms_url: "https://www.mctotx.org/property/property_tax_forms.php"
 mcad_url: "https://mcad-tx.org/"
 tax_office_url: "https://actweb.acttax.com/act_webdev/montgomery/index.jsp"
 
-google_sheets_id: "YOUR_GOOGLE_SHEETS_ID_HERE"
-google_drive_folder_id: "YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE"
+google_sheets_id: "1PE534MXnwlRqQoiukX8fCvtwamiKnT4JaiRsbBOb3DM"
+google_drive_folder_id: "1SJbNWtMPFFrzCk3zc2IjvPhottl5ns9W"
 google_credentials_path: "config/credentials.json"
 google_token_path: "config/token.json"
 
