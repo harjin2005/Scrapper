@@ -28,7 +28,7 @@ async def run(config_path: str = "montgomery/config/config.yaml") -> None:
     log.info("montgomery_run_start", run_date=run_date_str)
 
     # ── 1. Check for new Excel file ──────────────────────────────────────────
-    result = check_for_new_file(cfg.tax_forms_url, cfg.downloads_dir)
+    result = await check_for_new_file(cfg.tax_forms_url, cfg.downloads_dir)
     if result is None:
         log.info("no_new_file_skipping_run")
         return
