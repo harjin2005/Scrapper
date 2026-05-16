@@ -1,0 +1,20 @@
+tax_forms_url: "https://www.mctotx.org/property/property_tax_forms.php"
+mcad_url: "https://mcad-tx.org/"
+tax_office_url: "https://actweb.acttax.com/act_webdev/montgomery/index.jsp"
+
+# --- REQUIRED: Fill in your Google IDs ---
+google_sheets_id: "YOUR_GOOGLE_SHEETS_ID_HERE"
+google_drive_folder_id: "YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE"
+
+# --- DO NOT CHANGE ---
+google_credentials_path: "config/credentials.json"
+google_token_path: "config/token.json"
+downloads_dir: "montgomery/downloads"
+logs_dir: "montgomery/logs"
+checkpoint_dir: "montgomery/checkpoints"
+
+retry_attempts: 3
+request_timeout_ms: 30000
+headless: false
+rate_limit_delay_seconds: 2.0
+checkpoint_every_n: 100
