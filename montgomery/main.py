@@ -19,7 +19,10 @@ from scraper.logger import get_logger
 log = get_logger("montgomery.main")
 
 
-async def run(config_path: str = "montgomery/config/config.yaml") -> None:
+async def run(
+    config_path: str = "montgomery/config/config.yaml",
+    local_xlsx: str | None = None,
+) -> None:
     cfg = load_config(config_path)
     run_date = date.today()
     run_date_str = run_date.strftime("%Y-%m-%d")
@@ -27,16 +30,21 @@ async def run(config_path: str = "montgomery/config/config.yaml") -> None:
 
     log.info("montgomery_run_start", run_date=run_date_str)
 
-    # ── 1. Check for new Excel file ──────────────────────────────────────────
-    result = await check_for_new_file(cfg.tax_forms_url, cfg.downloads_dir)
-    if result is None:
-        log.info("no_new_file_skipping_run")
-        return
+    # ── 1. Get Excel file — auto-download OR manual path ─────────────────────
+    if local_xlsx:
+        # Manual mode: user supplies local Excel path, skip website check
+        xlsx_path = local_xlsx
+        as_of_date = run_date_str
+        log.info("manual_file_mode", path=xlsx_path)
+    else:
+        result = await check_for_new_file(cfg.tax_forms_url, cfg.downloads_dir)
+        if result is None:
+            log.info("no_new_file_skipping_run")
+            return
+        download_url, as_of_date = result
 
-    download_url, as_of_date = result
-
-    # ── 2. Download Excel ────────────────────────────────────────────────────
-    xlsx_path = download_excel(download_url, as_of_date, cfg.downloads_dir)
+        # ── 2. Download Excel ────────────────────────────────────────────────
+        xlsx_path = download_excel(download_url, as_of_date, cfg.downloads_dir)
 
     # ── 3. Upload Excel to Drive ─────────────────────────────────────────────
     drive = DriveUploader(
@@ -176,7 +184,12 @@ async def run(config_path: str = "montgomery/config/config.yaml") -> None:
 
 
 def main() -> None:
-    asyncio.run(run())
+    import argparse
+    parser = argparse.ArgumentParser(description="Montgomery County Delinquent Tax Processor")
+    parser.add_argument("--file", help="Path to local Excel file (skips website download)")
+    parser.add_argument("--config", default="montgomery/config/config.yaml")
+    args = parser.parse_args()
+    asyncio.run(run(config_path=args.config, local_xlsx=args.file))
 
 
 if __name__ == "__main__":
