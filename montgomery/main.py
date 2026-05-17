@@ -124,19 +124,18 @@ async def run(
             rec.created_at = datetime.utcnow()
         rec.updated_at = datetime.utcnow()
 
-        # Write to Sheets
+        # Write to Sheets — only checkpoint on success
         try:
             action = sheets.upsert(rec)
             if action == "added":
                 added += 1
             else:
                 updated += 1
+            processed_records.append(rec)
+            checkpoint.mark_done(acct)
         except Exception as exc:
             log.error("sheets_upsert_error", account=acct, error=str(exc))
             failed_accounts.append(acct)
-
-        processed_records.append(rec)
-        checkpoint.mark_done(acct)
 
         # Save checkpoint every N records
         if i % cfg.checkpoint_every_n == 0:

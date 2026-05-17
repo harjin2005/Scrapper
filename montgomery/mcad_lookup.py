@@ -30,7 +30,8 @@ class MCADLookup:
             async with async_playwright() as pw:
                 browser = await pw.chromium.launch(headless=self.config.headless)
                 page = await browser.new_page()
-                page.set_default_timeout(self.config.request_timeout_ms)
+                # Use shorter timeout for MCAD — fail fast if site unreachable
+                page.set_default_timeout(15000)
                 try:
                     return await self._search(page, account_number)
                 finally:
