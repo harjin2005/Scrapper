@@ -1,7 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
 from datetime import date
-import pickle
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -33,8 +32,7 @@ class DriveUploader:
         creds = None
         token = Path(self._token_path)
         if token.exists():
-            with open(token, "rb") as f:
-                creds = pickle.load(f)
+            creds = Credentials.from_authorized_user_file(str(token), SCOPES)
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
@@ -43,8 +41,8 @@ class DriveUploader:
                     self._creds_path, SCOPES
                 )
                 creds = flow.run_local_server(port=0)
-            with open(token, "wb") as f:
-                pickle.dump(creds, f)
+            with open(token, "w") as f:
+                f.write(creds.to_json())
         self._service = build("drive", "v3", credentials=creds)
         return self._service
 

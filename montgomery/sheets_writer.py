@@ -1,11 +1,10 @@
 from __future__ import annotations
 from typing import Optional
+from pathlib import Path
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-import pickle
-from pathlib import Path
 from montgomery.models import DelinquentRecord
 from scraper.logger import get_logger
 
@@ -57,8 +56,7 @@ class SheetsWriter:
         creds = None
         token = Path(self._token_path)
         if token.exists():
-            with open(token, "rb") as f:
-                creds = pickle.load(f)
+            creds = Credentials.from_authorized_user_file(str(token), SCOPES)
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
@@ -67,12 +65,25 @@ class SheetsWriter:
                     self._creds_path, SCOPES
                 )
                 creds = flow.run_local_server(port=0)
-            with open(token, "wb") as f:
-                pickle.dump(creds, f)
+            with open(token, "w") as f:
+                f.write(creds.to_json())
         self._service = build("sheets", "v4", credentials=creds)
         return self._service
 
+    def _ensure_sheet_exists(self) -> None:
+        """Create the Montgomery tab if it doesn't exist."""
+        svc = self._get_service()
+        meta = svc.spreadsheets().get(spreadsheetId=self.spreadsheet_id).execute()
+        existing = [s["properties"]["title"] for s in meta.get("sheets", [])]
+        if self._sheet_name not in existing:
+            svc.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={"requests": [{"addSheet": {"properties": {"title": self._sheet_name}}}]},
+            ).execute()
+            log.info("sheet_tab_created", name=self._sheet_name)
+
     def _ensure_headers(self) -> None:
+        self._ensure_sheet_exists()
         svc = self._get_service()
         result = (
             svc.spreadsheets()
