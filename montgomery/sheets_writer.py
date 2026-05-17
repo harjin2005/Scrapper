@@ -11,7 +11,7 @@ from scraper.logger import get_logger
 log = get_logger("sheets_writer")
 
 SCOPES = [
-    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 

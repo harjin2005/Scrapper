@@ -1,8 +1,8 @@
 clerk_portal_url: "https://www.tccsearch.org/RealEstate/SearchEntry.aspx?e=newSession"
 cad_url: "https://travis.prodigycad.com/property-search"
 tax_url: "https://tax-office.traviscountytx.gov/properties/taxes/account-search"
-google_sheets_id: "YOUR_GOOGLE_SHEETS_ID_HERE"
-google_drive_folder_id: "YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE"
+google_sheets_id: "1PE534MXnwlRqQoiukX8fCvtwamiKnT4JaiRsbBOb3DM"
+google_drive_folder_id: "1_dYpaDeM1eTSYm5EKue08psoejic8TKb"
 google_credentials_path: "config/credentials.json"
 google_token_path: "config/token.json"
 downloads_dir: "downloads"
@@ -10,4 +10,16 @@ logs_dir: "logs"
 search_doc_type: "NOTICE OF SUBSTITUTE TRUSTEE SALE"
 retry_attempts: 3
 request_timeout_ms: 30000
-headless: true
+headless: false
+
+# LLMLingua compression settings
+llmlingua:
+  enabled: false                         # set true to compress before LLM calls
+  model: "microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+  compression_ratio: 0.5                 # 0.5 = keep 50% of tokens
+
+# LLM-based extraction (fallback when regex misses fields)
+llm_extraction:
+  enabled: false                         # requires API_KEY env var
+  model: "haiku-4-5-20251001"
+  compression_ratio: 0.5
