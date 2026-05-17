@@ -46,16 +46,7 @@ async def run(
         # ── 2. Download Excel ────────────────────────────────────────────────
         xlsx_path = download_excel(download_url, as_of_date, cfg.downloads_dir)
 
-    # ── 3. Upload Excel to Drive ─────────────────────────────────────────────
-    drive = DriveUploader(
-        folder_id=cfg.google_drive_folder_id,
-        credentials_path=cfg.google_credentials_path,
-        token_path=cfg.google_token_path,
-    )
-    drive_link = drive.upload(xlsx_path, run_date)
-    log.info("excel_on_drive", link=drive_link)
-
-    # ── 4. Parse Excel rows ──────────────────────────────────────────────────
+    # ── 3. Parse Excel rows ──────────────────────────────────────────────────
     records = load_excel(xlsx_path, excel_file_date=as_of_date)
     total_rows = len(records)
     log.info("records_parsed", count=total_rows)
@@ -172,6 +163,17 @@ async def run(
     report_path = logs_dir / f"run_report_{run_date_str}.json"
     report_path.write_text(json.dumps(report.model_dump(), indent=2))
 
+    # ── 9. Upload Excel to Drive (after Sheet is populated) ──────────────────
+    size_mb = round(Path(xlsx_path).stat().st_size / 1_048_576, 1)
+    log.info("uploading_excel_to_drive", path=xlsx_path, size_mb=size_mb, note="may take 2-3 minutes for large files")
+    drive = DriveUploader(
+        folder_id=cfg.google_drive_folder_id,
+        credentials_path=cfg.google_credentials_path,
+        token_path=cfg.google_token_path,
+    )
+    drive_link = drive.upload(xlsx_path, run_date)
+    log.info("excel_on_drive", link=drive_link)
+
     log.info(
         "montgomery_run_complete",
         status=report.overall_status,
@@ -180,6 +182,7 @@ async def run(
         failed=len(failed_accounts),
         runtime_seconds=round(runtime, 1),
         report_path=str(report_path),
+        drive_link=drive_link,
     )
 
 
