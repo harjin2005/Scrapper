@@ -22,6 +22,7 @@ log = get_logger("montgomery.main")
 async def run(
     config_path: str = "montgomery/config/config.yaml",
     local_xlsx: str | None = None,
+    limit: int | None = None,
 ) -> None:
     cfg = load_config(config_path)
     run_date = date.today()
@@ -134,6 +135,11 @@ async def run(
             checkpoint.save()
             log.info("checkpoint_saved", at_record=i)
 
+        # Stop early if limit reached
+        if limit and (added + updated) >= limit:
+            log.info("limit_reached", limit=limit)
+            break
+
         # Rate limit
         await asyncio.sleep(cfg.rate_limit_delay_seconds)
 
@@ -191,8 +197,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Montgomery County Delinquent Tax Processor")
     parser.add_argument("--file", help="Path to local Excel file (skips website download)")
     parser.add_argument("--config", default="montgomery/config/config.yaml")
+    parser.add_argument("--limit", type=int, default=None, help="Stop after N records written to Sheet, then upload to Drive")
     args = parser.parse_args()
-    asyncio.run(run(config_path=args.config, local_xlsx=args.file))
+    asyncio.run(run(config_path=args.config, local_xlsx=args.file, limit=args.limit))
 
 
 if __name__ == "__main__":
