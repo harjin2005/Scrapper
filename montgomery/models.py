@@ -5,6 +5,7 @@ from pydantic import BaseModel, field_validator
 
 
 class DelinquentRecord(BaseModel):
+    model_config = {"extra": "allow"}
     account_number: str
     property_owner: str = ""
     property_address: str = ""

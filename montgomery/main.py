@@ -91,9 +91,10 @@ async def run(
 
         log.info("processing_record", account=acct, progress=f"{i}/{total_rows}")
 
-        # MCAD cross-reference
+        # MCAD cross-reference — use appraisal district account (no leading zeros)
+        mcad_acct = getattr(rec, "_aprdistacc", None) or acct
         try:
-            cad_data = await mcad.lookup(acct)
+            cad_data = await mcad.lookup(mcad_acct)
             rec.property_type = cad_data.property_type
             rec.property_type_code = cad_data.property_type_code
             rec.appraised_value = cad_data.appraised_value
