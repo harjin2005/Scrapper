@@ -12,12 +12,14 @@ log = get_logger("tax_lookup_montgomery")
 
 # Montgomery County Tax Office — ACTweb JSP portal
 _BASE = "https://actweb.acttax.com"
-_SEARCH_URL = _BASE + "/act_webdev/montgomery/index.jsp"
+_PATH_PREFIX = "/act_webdev/montgomery/"
+_SEARCH_URL = _BASE + _PATH_PREFIX + "index.jsp"
 
 # Form field selectors (JSP portal, static HTML)
 _SEL_ACCOUNT_INPUT = "input[name='accountNumber']"
 _SEL_SEARCH_BTN = "input[type='submit'], button[type='submit']"
-_SEL_RESULT_LINK = "a[href*='showdetail'], a[href*='detail'], table.resultsTable a"
+# ACTweb showlist links: href="showdetail.jsp?can=..." (relative, no leading slash)
+_SEL_RESULT_LINK = "a[href*='showdetail'], a[href*='detail.jsp'], table a[href]"
 _SEL_TAX_ROWS = "table tr"
 
 
@@ -72,19 +74,32 @@ class TaxLookup:
 
         await asyncio.sleep(3)
 
-        # If results list appears, navigate to first matching result
-        try:
-            await page.wait_for_selector(_SEL_RESULT_LINK, timeout=8000)
-            links = page.locator(_SEL_RESULT_LINK)
-            count = await links.count()
-            if count > 0:
-                href = await links.first.get_attribute("href") or ""
-                detail_url = href if href.startswith("http") else _BASE + href
-                await page.goto(detail_url, wait_until="domcontentloaded")
-                await asyncio.sleep(3)
-        except Exception:
-            pass  # May have landed directly on detail page
+        current_url = page.url
+        log.info("tax_post_search_url", account=account_number, url=current_url)
 
+        # Navigate from showlist to detail page
+        if "showlist" in current_url or "index" in current_url:
+            try:
+                await page.wait_for_selector(_SEL_RESULT_LINK, timeout=8000)
+                links = page.locator(_SEL_RESULT_LINK)
+                count = await links.count()
+                log.info("tax_result_links_found", count=count, account=account_number)
+                if count > 0:
+                    href = await links.first.get_attribute("href") or ""
+                    # Build correct absolute URL — ACTweb hrefs are relative to the JSP path
+                    if href.startswith("http"):
+                        detail_url = href
+                    elif href.startswith("/"):
+                        detail_url = _BASE + href
+                    else:
+                        detail_url = _BASE + _PATH_PREFIX + href
+                    log.info("tax_navigating_detail", url=detail_url)
+                    await page.goto(detail_url, wait_until="domcontentloaded")
+                    await asyncio.sleep(3)
+            except Exception as exc:
+                log.warning("tax_detail_nav_failed", account=account_number, error=str(exc))
+
+        log.info("tax_detail_url", account=account_number, url=page.url)
         return await self._extract_detail(page)
 
     async def _extract_detail(self, page: Page) -> TaxData:
@@ -163,6 +178,22 @@ class TaxLookup:
         m = re.search(r"(?:Cause|Suit|Lawsuit)\s+Date[:\s]+([\d/\-]+)", body, re.IGNORECASE)
         if m:
             result.cause_date = m.group(1).strip()
+
+        # Fallback: if table extraction missed total_due, scan body text
+        if not result.total_due and body:
+            for pattern in [
+                r"Total\s+(?:Amount\s+)?Due[:\s]*\$?([\d,]+\.?\d*)",
+                r"Grand\s+Total[:\s]*\$?([\d,]+\.?\d*)",
+                r"Balance\s+Due[:\s]*\$?([\d,]+\.?\d*)",
+                r"Total\s+Delinquency[:\s]*\$?([\d,]+\.?\d*)",
+                r"\$\s*([\d,]+\.\d{2})\s",
+            ]:
+                m = re.search(pattern, body, re.IGNORECASE)
+                if m:
+                    val = m.group(1).replace(",", "").strip()
+                    if float(val) > 0:
+                        result.total_due = val
+                        break
 
         log.info(
             "tax_extracted",

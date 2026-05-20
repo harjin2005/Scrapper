@@ -70,16 +70,15 @@ class MCADLookup:
             log.info("mcad_no_results", account=account_number)
             return CADData()
 
-        # Try to get property ID for detail navigation
+        # Extract from grid row using confirmed col-ids from mcad-tx.org
         pid = await self._get_cell_text(page, "pid")
-        if not pid:
-            pid = await self._get_cell_text(page, "pAccountID")
+        owner = await self._get_cell_text(page, "displayName")
+        street = await self._get_cell_text(page, "streetPrimary")
+        city = await self._get_cell_text(page, "city")
+        prop_type = await self._get_cell_text(page, "propType")
+        address = f"{street} {city}".strip() if street else city
 
-        # Extract what we can from the grid row
-        owner = await self._get_cell_text(page, "owner") or await self._get_cell_text(page, "ownerName")
-        address = await self._get_cell_text(page, "situs") or await self._get_cell_text(page, "address")
-
-        cad = CADData(mailing_address=address)
+        cad = CADData(mailing_address=address, property_type=prop_type)
 
         if pid:
             detail = await self._get_detail(page, pid)
@@ -113,23 +112,25 @@ class MCADLookup:
 
             body = await page.evaluate("() => document.body.innerText")
 
+            # mcad-tx.org (MUI/React) renders label then value on next line (no colon)
+            # Pattern: "Label\nValue" OR "Label: Value" OR "Label Value"
+
             # Appraised / Market value
             for pattern in [
-                r"Appraised Value[:\s]+\$([\d,]+)",
-                r"Market Value[:\s]+\$([\d,]+)",
-                r"Total Appraised[:\s]+\$([\d,]+)",
-                r"\$([\d,]+)\s*(?:Appraised|Market)",
+                r"(?:Appraised|Market|Total Appraised)\s+Value[:\s]*\n?\$?([\d,]+)",
+                r"Appraised Value[:\s]+\$?([\d,]+)",
+                r"Market Value[:\s]+\$?([\d,]+)",
+                r"\$\s*([\d,]+)\s*\n?\s*(?:Appraised|Market)",
             ]:
                 m = re.search(pattern, body, re.IGNORECASE)
                 if m:
-                    result["appraised_value"] = m.group(1).strip()
+                    result["appraised_value"] = m.group(1).replace(",", "").strip()
                     break
 
-            # Property use / type code
+            # Property use / state code
             for pattern in [
-                r"Use Code[:\s]+([A-Z0-9]+)",
-                r"Property Use[:\s]+([^\n]+)",
-                r"State Code[:\s]+([A-Z0-9]+)",
+                r"(?:Use Code|State Code)[:\s]*\n?([A-Z0-9]{1,10})\b",
+                r"(?:Use Code|State Code)[:\s]+([A-Z0-9]+)",
             ]:
                 m = re.search(pattern, body, re.IGNORECASE)
                 if m:
@@ -138,21 +139,21 @@ class MCADLookup:
 
             # Property type description
             for pattern in [
-                r"Property Type[:\s]+([^\n]+)",
-                r"Class[:\s]+([^\n]{3,50})",
+                r"Property (?:Type|Class|Use)[:\s]*\n?([A-Za-z][^\n]{2,50})",
+                r"(?:Residential|Commercial|Agricultural|Industrial|Land)\b",
             ]:
                 m = re.search(pattern, body, re.IGNORECASE)
                 if m:
-                    val = m.group(1).strip()
+                    val = (m.group(1) if m.lastindex else m.group(0)).strip()
                     if val and len(val) < 60:
                         result["property_type"] = val
                         break
 
             # Lot size / acreage
             for pattern in [
-                r"Acres[:\s]+([\d,.]+)",
-                r"Lot Size[:\s]+([\d,.\s]+(?:sq\s*ft|acres?)?)",
-                r"Area[:\s]+([\d,.\s]+(?:sq\s*ft|acres?)?)",
+                r"(?:Acres|Lot Size|Land Area)[:\s]*\n?([\d,.]+\s*(?:acres?|sq\.?\s*ft\.?)?)",
+                r"([\d,.]+)\s*acres?",
+                r"([\d,.]+)\s*sq\.?\s*ft\.?",
             ]:
                 m = re.search(pattern, body, re.IGNORECASE)
                 if m:
@@ -160,14 +161,24 @@ class MCADLookup:
                     break
 
             # Legal description
-            m = re.search(r"Legal Description[:\s]+([^\n]{5,120})", body, re.IGNORECASE)
-            if m:
-                result["legal_description"] = m.group(1).strip()
+            for pattern in [
+                r"Legal Description[:\s]*\n?([^\n]{5,150})",
+                r"Legal[:\s]*\n?([A-Z0-9][^\n]{5,150})",
+            ]:
+                m = re.search(pattern, body, re.IGNORECASE)
+                if m:
+                    result["legal_description"] = m.group(1).strip()
+                    break
 
-            # Mailing address (from detail page)
-            m = re.search(r"Mailing Address[:\s]+([^\n]{5,120})", body, re.IGNORECASE)
-            if m:
-                result["mailing_address"] = m.group(1).strip()
+            # Mailing address
+            for pattern in [
+                r"Mailing Address[:\s]*\n?([^\n]{5,120})",
+                r"Mail[:\s]*\n?([0-9][^\n]{5,120})",
+            ]:
+                m = re.search(pattern, body, re.IGNORECASE)
+                if m:
+                    result["mailing_address"] = m.group(1).strip()
+                    break
 
         except Exception as exc:
             log.warning("mcad_detail_failed", pid=pid, error=str(exc))
