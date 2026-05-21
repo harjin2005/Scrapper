@@ -97,19 +97,9 @@ async def run(
             log.error("mcad_lookup_error", account=acct, error=str(exc))
             failed_mcad.append(acct)
 
-        # Tax Office cross-reference
-        try:
-            tax_data = await tax.lookup(acct)
-            rec.last_tax_payment_date = tax_data.last_payment_date
-            rec.initial_delinquency_year = tax_data.initial_delinquency_year
-            rec.years_behind_taxes = tax_data.years_behind
-            rec.cause_or_lawsuit_no = tax_data.cause_number
-            rec.cause_date = tax_data.cause_date
-            if not rec.total_tax_due:
-                rec.total_tax_due = tax_data.total_due
-        except Exception as exc:
-            log.error("tax_lookup_error", account=acct, error=str(exc))
-            failed_tax.append(acct)
+        # Tax Office cross-reference — skipped while site is IP-blocked
+        # Core tax data (total_due, initial_year, years_behind) already from Excel
+        log.debug("tax_lookup_skipped", account=acct)
 
         # Timestamps
         now_str = datetime.utcnow().isoformat()
