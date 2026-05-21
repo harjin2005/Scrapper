@@ -75,22 +75,40 @@ class MCADLookup:
         owner = await self._get_cell_text(page, "displayName")
         street = await self._get_cell_text(page, "streetPrimary")
         city = await self._get_cell_text(page, "city")
-        prop_type = await self._get_cell_text(page, "propType")
+        prop_type_code = await self._get_cell_text(page, "propType")
         address = f"{street} {city}".strip() if street else city
 
-        cad = CADData(mailing_address=address, property_type=prop_type)
+        # Map single-letter code to full description
+        _TYPE_MAP = {
+            "R": "Residential", "C": "Commercial", "A": "Agricultural",
+            "I": "Industrial", "M": "Manufactured Home", "U": "Utility",
+            "X": "Exempt", "B": "Business Personal",
+        }
+        prop_type = _TYPE_MAP.get((prop_type_code or "").upper(), prop_type_code)
+
+        cad = CADData(
+            mailing_address=address,
+            property_type=prop_type,
+            property_type_code=prop_type_code,
+        )
 
         if pid:
             detail = await self._get_detail(page, pid)
-            cad.property_type = detail.get("property_type")
-            cad.property_type_code = detail.get("property_type_code")
+            # Keep grid prop_type (already mapped correctly); only take code from detail
+            if detail.get("property_type_code"):
+                cad.property_type_code = detail["property_type_code"]
             cad.appraised_value = detail.get("appraised_value")
             cad.lot_size = detail.get("lot_size")
             cad.legal_description = detail.get("legal_description")
             if detail.get("mailing_address"):
                 cad.mailing_address = detail["mailing_address"]
+            if detail.get("owner_name"):
+                cad.owner_contact = detail["owner_name"]  # store current owner
 
-        log.info("mcad_extracted", account=account_number, has_value=bool(cad.appraised_value))
+        log.info("mcad_extracted", account=account_number,
+                 has_value=bool(cad.appraised_value),
+                 prop_type=cad.property_type,
+                 prop_type_code=cad.property_type_code)
         return cad
 
     async def _get_cell_text(self, page: Page, col_id: str) -> Optional[str]:
@@ -108,77 +126,53 @@ class MCADLookup:
         try:
             detail_url = _BASE + _DETAIL_PATH + pid
             await page.goto(detail_url, wait_until="domcontentloaded")
-            await asyncio.sleep(3)
+
+            # Wait until React API calls finish — values render as plain numbers (no $)
+            try:
+                await page.wait_for_function(
+                    "() => document.body.innerText.includes('Net Appraised') && "
+                    "!document.body.innerText.includes('Loading owner')",
+                    timeout=20000,
+                )
+            except Exception:
+                await asyncio.sleep(10)  # fallback
 
             body = await page.evaluate("() => document.body.innerText")
 
-            # mcad-tx.org (MUI/React) renders label then value on next line (no colon)
-            # Pattern: "Label\nValue" OR "Label: Value" OR "Label Value"
+            # mcad-tx.org renders: "Label:\n\nValue\n\n" (label + blank line + value)
+            # Values are plain numbers — NO dollar sign (e.g. "437,200" not "$437,200")
 
-            # Appraised / Market value
-            for pattern in [
-                r"(?:Appraised|Market|Total Appraised)\s+Value[:\s]*\n?\$?([\d,]+)",
-                r"Appraised Value[:\s]+\$?([\d,]+)",
-                r"Market Value[:\s]+\$?([\d,]+)",
-                r"\$\s*([\d,]+)\s*\n?\s*(?:Appraised|Market)",
-            ]:
-                m = re.search(pattern, body, re.IGNORECASE)
-                if m:
-                    result["appraised_value"] = m.group(1).replace(",", "").strip()
-                    break
+            # Appraised value — "Appraised\n\n437,200"
+            m = re.search(r"\bAppraised\s*\n+\s*([\d,]+)", body, re.IGNORECASE)
+            if m:
+                result["appraised_value"] = m.group(1).replace(",", "").strip()
 
-            # Property use / state code
-            for pattern in [
-                r"(?:Use Code|State Code)[:\s]*\n?([A-Z0-9]{1,10})\b",
-                r"(?:Use Code|State Code)[:\s]+([A-Z0-9]+)",
-            ]:
-                m = re.search(pattern, body, re.IGNORECASE)
-                if m:
-                    result["property_type_code"] = m.group(1).strip()
-                    break
+            # State code — "State Code:\n\nA1"
+            m = re.search(r"State Code:\s*\n+\s*([A-Z][A-Z0-9]{0,4})\b", body)
+            if m:
+                result["property_type_code"] = m.group(1).strip()
 
-            # Property type description
-            for pattern in [
-                r"Property (?:Type|Class|Use)[:\s]*\n?([A-Za-z][^\n]{2,50})",
-                r"(?:Residential|Commercial|Agricultural|Industrial|Land)\b",
-            ]:
-                m = re.search(pattern, body, re.IGNORECASE)
-                if m:
-                    val = (m.group(1) if m.lastindex else m.group(0)).strip()
-                    if val and len(val) < 60:
-                        result["property_type"] = val
-                        break
+            # Lot size — from Land table: "G2  Site Value  0.2410  10,500.00  ..."
+            m = re.search(r"Site Value\s+([\d.]+)", body)
+            if not m:
+                m = re.search(r"([\d.]+)\s+[\d,]+\s+[\d,]+\s+0\s*$", body, re.MULTILINE)
+            if m:
+                result["lot_size"] = f"{m.group(1)} acres"
 
-            # Lot size / acreage
-            for pattern in [
-                r"(?:Acres|Lot Size|Land Area)[:\s]*\n?([\d,.]+\s*(?:acres?|sq\.?\s*ft\.?)?)",
-                r"([\d,.]+)\s*acres?",
-                r"([\d,.]+)\s*sq\.?\s*ft\.?",
-            ]:
-                m = re.search(pattern, body, re.IGNORECASE)
-                if m:
-                    result["lot_size"] = m.group(1).strip()
-                    break
+            # Legal description — "Legal Description:\n\nOAK RIDGE NORTH..."
+            m = re.search(r"Legal Description:\s*\n+\s*([^\n]{5,150})", body)
+            if m:
+                result["legal_description"] = m.group(1).strip()
 
-            # Legal description
-            for pattern in [
-                r"Legal Description[:\s]*\n?([^\n]{5,150})",
-                r"Legal[:\s]*\n?([A-Z0-9][^\n]{5,150})",
-            ]:
-                m = re.search(pattern, body, re.IGNORECASE)
-                if m:
-                    result["legal_description"] = m.group(1).strip()
-                    break
+            # Mailing address — "Mailing Address:\n\n406 HEATHER LN CONROE TX USA 77385"
+            m = re.search(r"Mailing Address:\s*\n+\s*([^\n]{10,120})", body)
+            if m:
+                result["mailing_address"] = m.group(1).strip()
 
-            # Mailing address
-            for pattern in [
-                r"Mailing Address[:\s]*\n?([^\n]{5,120})",
-                r"Mail[:\s]*\n?([0-9][^\n]{5,120})",
-            ]:
-                m = re.search(pattern, body, re.IGNORECASE)
-                if m:
-                    result["mailing_address"] = m.group(1).strip()
-                    break
+            # Owner name from detail page (more current than grid — deed transfers update it)
+            m = re.search(r"\bName:\s*\n+\s*([^\n]{3,80})", body)
+            if m:
+                result["owner_name"] = m.group(1).strip()
 
         except Exception as exc:
             log.warning("mcad_detail_failed", pid=pid, error=str(exc))
