@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import re
 import time
 from datetime import datetime, date
 from pathlib import Path
@@ -19,6 +20,16 @@ from scraper.logger import get_logger
 log = get_logger("montgomery.main")
 
 
+def _extract_acres_from_legal(legal: str | None) -> str | None:
+    """Fallback: parse lot size from legal description, e.g. 'ACRES 1.0' or 'ACRES 4.0253'."""
+    if not legal:
+        return None
+    m = re.search(r'\bACRES?\s+([\d.]+)', legal, re.IGNORECASE)
+    if m:
+        return f"{m.group(1)} acres"
+    return None
+
+
 async def run(
     config_path: str = "montgomery/config/config.yaml",
     local_xlsx: str | None = None,
@@ -33,7 +44,6 @@ async def run(
 
     # ── 1. Get Excel file — auto-download OR manual path ─────────────────────
     if local_xlsx:
-        # Manual mode: user supplies local Excel path, skip website check
         xlsx_path = local_xlsx
         as_of_date = run_date_str
         log.info("manual_file_mode", path=xlsx_path)
@@ -83,26 +93,50 @@ async def run(
 
         log.info("processing_record", account=acct, progress=f"{i}/{total_rows}")
 
-        # MCAD cross-reference — use appraisal district account (no leading zeros)
+        # MCAD cross-reference — validate owner name to avoid using wrong property data
         mcad_acct = getattr(rec, "_aprdistacc", None) or acct
         try:
-            cad_data = await mcad.lookup(mcad_acct)
-            rec.property_type = cad_data.property_type
-            rec.property_type_code = cad_data.property_type_code
-            rec.appraised_value = cad_data.appraised_value
-            rec.lot_size = cad_data.lot_size
+            cad_data = await mcad.lookup(mcad_acct, expected_owner=rec.property_owner)
+            # Preserve Excel-derived values when CAD returns nothing (don't overwrite with None)
+            rec.property_type = cad_data.property_type or rec.property_type
+            rec.property_type_code = cad_data.property_type_code or rec.property_type_code
+            rec.appraised_value = cad_data.appraised_value or rec.appraised_value
+            rec.lot_size = (
+                cad_data.lot_size
+                or rec.lot_size
+                or _extract_acres_from_legal(rec.legal_description)
+            )
             rec.legal_description = rec.legal_description or cad_data.legal_description
             rec.property_mailing_address = rec.property_mailing_address or cad_data.mailing_address
         except Exception as exc:
             log.error("mcad_lookup_error", account=acct, error=str(exc))
             failed_mcad.append(acct)
+            # Fallback: lot size from legal description
+            if not rec.lot_size:
+                rec.lot_size = _extract_acres_from_legal(rec.legal_description)
 
-        # Tax Office cross-reference — skipped while site is IP-blocked
-        # Core tax data (total_due, initial_year, years_behind) already from Excel
-        log.debug("tax_lookup_skipped", account=acct)
+        # Tax Office cross-reference — authoritative for current total_due and last payment date
+        try:
+            tax_data = await tax.lookup(acct)
+            # Tax website balance includes all penalties/interest — always prefer over Excel amount
+            if tax_data.total_due:
+                rec.total_tax_due = tax_data.total_due
+            if tax_data.last_payment_date:
+                rec.last_tax_payment_date = tax_data.last_payment_date
+            # Delinquency year from Tax website only if Excel was empty
+            if tax_data.initial_delinquency_year and not rec.initial_delinquency_year:
+                rec.initial_delinquency_year = tax_data.initial_delinquency_year
+            # Full property address (with city/state/zip) from Tax website
+            if tax_data.property_address and len(tax_data.property_address) > len(rec.property_address or ""):
+                rec.property_address = tax_data.property_address
+            # Appraised value from Tax website (gross value) only if CAD didn't provide one
+            if tax_data.appraised_value and not rec.appraised_value:
+                rec.appraised_value = tax_data.appraised_value
+        except Exception as exc:
+            log.error("tax_lookup_error", account=acct, error=str(exc))
+            failed_tax.append(acct)
 
         # Timestamps
-        now_str = datetime.utcnow().isoformat()
         if not rec.created_at:
             rec.created_at = datetime.utcnow()
         rec.updated_at = datetime.utcnow()

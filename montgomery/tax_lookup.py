@@ -34,7 +34,8 @@ class TaxLookup:
             async with async_playwright() as pw:
                 browser = await pw.chromium.launch(headless=self.config.headless)
                 page = await browser.new_page()
-                page.set_default_timeout(self.config.request_timeout_ms)
+                # Shorter timeout per request — don't wait forever if blocked
+                page.set_default_timeout(20000)
                 try:
                     return await self._search(page, account_number)
                 finally:
@@ -43,7 +44,8 @@ class TaxLookup:
             log.error("tax_lookup_failed", account=account_number, error=str(exc))
             return TaxData()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    # Only 1 retry — avoid hammering blocked site
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=5, max=15))
     async def _search(self, page: Page, account_number: str) -> TaxData:
         log.info("tax_search", account=account_number, url=_SEARCH_URL)
         await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
@@ -86,7 +88,7 @@ class TaxLookup:
                 log.info("tax_result_links_found", count=count, account=account_number)
                 if count > 0:
                     href = await links.first.get_attribute("href") or ""
-                    # Build correct absolute URL — ACTweb hrefs are relative to the JSP path
+                    # Build correct absolute URL — ACTweb hrefs are relative to JSP path
                     if href.startswith("http"):
                         detail_url = href
                     elif href.startswith("/"):
@@ -100,7 +102,30 @@ class TaxLookup:
                 log.warning("tax_detail_nav_failed", account=account_number, error=str(exc))
 
         log.info("tax_detail_url", account=account_number, url=page.url)
-        return await self._extract_detail(page)
+        result = await self._extract_detail(page)
+
+        # Navigate to Tax Information and Receipts to get last payment date
+        try:
+            receipt_link = page.locator("a[href*='showreceipt'], a[href*='receipt']").first
+            if await receipt_link.count() > 0:
+                href = await receipt_link.get_attribute("href") or ""
+                if href.startswith("http"):
+                    receipt_url = href
+                elif href.startswith("/"):
+                    receipt_url = _BASE + href
+                else:
+                    receipt_url = _BASE + _PATH_PREFIX + href
+                log.info("tax_navigating_receipts", url=receipt_url)
+                await page.goto(receipt_url, wait_until="domcontentloaded")
+                await asyncio.sleep(2)
+                last_paid = await self._extract_last_payment(page)
+                if last_paid:
+                    result.last_payment_date = last_paid
+                    log.info("tax_last_payment_found", date=last_paid, account=account_number)
+        except Exception as exc:
+            log.warning("tax_receipt_nav_failed", account=account_number, error=str(exc))
+
+        return result
 
     async def _extract_detail(self, page: Page) -> TaxData:
         body = await page.evaluate("() => document.body.innerText")
@@ -111,16 +136,47 @@ class TaxLookup:
 
         result = TaxData()
 
-        # Total amount due
+        # Total amount due — ACTweb shows "Total Due" or "Grand Total" or "Balance Due"
         for pattern in [
-            r"Total\s+(?:Amount\s+)?Due[:\s]+\$?([\d,]+\.?\d*)",
-            r"Grand\s+Total[:\s]+\$?([\d,]+\.?\d*)",
-            r"Balance\s+Due[:\s]+\$?([\d,]+\.?\d*)",
+            r"Total\s+(?:Amount\s+)?Due[:\s]*\$?\s*([\d,]+\.?\d*)",
+            r"Grand\s+Total[:\s]*\$?\s*([\d,]+\.?\d*)",
+            r"Balance\s+Due[:\s]*\$?\s*([\d,]+\.?\d*)",
+            r"Total\s+Delinquency[:\s]*\$?\s*([\d,]+\.?\d*)",
         ]:
             m = re.search(pattern, body, re.IGNORECASE)
             if m:
-                result.total_due = m.group(1).replace(",", "").strip()
-                break
+                val = m.group(1).replace(",", "").strip()
+                if float(val) > 0:
+                    result.total_due = val
+                    break
+
+        # Property address (situs) — "Situs: 2170 BROWN RD CONROE TX 77378"
+        for pattern in [
+            r"Situs[:\s]+([^\n]{10,80})",
+            r"Property\s+Address[:\s]+([^\n]{10,80})",
+            r"Site\s+Address[:\s]+([^\n]{10,80})",
+            r"Location[:\s]+([^\n]{10,80})",
+        ]:
+            m = re.search(pattern, body, re.IGNORECASE)
+            if m:
+                addr = m.group(1).strip()
+                # Filter out generic text
+                if addr and not re.match(r'^(type|code|owner|name)', addr, re.IGNORECASE):
+                    result.property_address = addr
+                    break
+
+        # Gross/appraised value from Tax website — fallback when CAD not available
+        for pattern in [
+            r"Appraised\s+Value[:\s]*\$?\s*([\d,]+\.?\d*)",
+            r"Gross\s+Value[:\s]*\$?\s*([\d,]+\.?\d*)",
+            r"Market\s+Value[:\s]*\$?\s*([\d,]+\.?\d*)",
+        ]:
+            m = re.search(pattern, body, re.IGNORECASE)
+            if m:
+                val = m.group(1).replace(",", "").strip()
+                if float(val) > 0:
+                    result.appraised_value = val
+                    break
 
         # Initial delinquency year — look for delinquent year entries in tax table
         year_pattern = re.compile(r"\b(20\d{2}|19\d{2})\b")
@@ -142,7 +198,6 @@ class TaxLookup:
                 if year_m and amount > 0:
                     delinquent_years.append(int(year_m.group()))
         except Exception:
-            # Fallback: extract years from body text near dollar amounts
             for m in re.finditer(r"\b(20\d{2}|19\d{2})\b.*?\$([\d,]+\.?\d*)", body):
                 amt = _parse_amount(m.group(2))
                 if amt > 0:
@@ -152,15 +207,16 @@ class TaxLookup:
             result.initial_delinquency_year = str(min(delinquent_years))
             result.years_behind = str(len(set(delinquent_years)))
 
-        # Last payment date
+        # Last payment date — also try from main detail page body
         for pattern in [
-            r"Last\s+Payment\s+Date[:\s]+([\d/\-]+)",
-            r"Date\s+of\s+Last\s+Payment[:\s]+([\d/\-]+)",
-            r"Paid\s+(?:in\s+Full\s+)?(?:on|through)[:\s]+([\d/\-]+)",
+            r"Last\s+Payment\s+Date[:\s]+([\w\s,/\-]+\d{4})",
+            r"Date\s+of\s+Last\s+Payment[:\s]+([\w\s,/\-]+\d{4})",
+            r"Paid\s+(?:in\s+Full\s+)?(?:on|through)[:\s]+([\w\s,/\-]+\d{4})",
+            r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
         ]:
             m = re.search(pattern, body, re.IGNORECASE)
             if m:
-                result.last_payment_date = m.group(1).strip()
+                result.last_payment_date = m.group(0).strip() if m.lastindex is None else m.group(1).strip()
                 break
 
         # Cause / lawsuit number
@@ -179,30 +235,37 @@ class TaxLookup:
         if m:
             result.cause_date = m.group(1).strip()
 
-        # Fallback: if table extraction missed total_due, scan body text
-        if not result.total_due and body:
-            for pattern in [
-                r"Total\s+(?:Amount\s+)?Due[:\s]*\$?([\d,]+\.?\d*)",
-                r"Grand\s+Total[:\s]*\$?([\d,]+\.?\d*)",
-                r"Balance\s+Due[:\s]*\$?([\d,]+\.?\d*)",
-                r"Total\s+Delinquency[:\s]*\$?([\d,]+\.?\d*)",
-                r"\$\s*([\d,]+\.\d{2})\s",
-            ]:
-                m = re.search(pattern, body, re.IGNORECASE)
-                if m:
-                    val = m.group(1).replace(",", "").strip()
-                    if float(val) > 0:
-                        result.total_due = val
-                        break
-
         log.info(
             "tax_extracted",
             account_url=page.url,
             total_due=result.total_due,
             initial_year=result.initial_delinquency_year,
             years_behind=result.years_behind,
+            property_address=result.property_address,
         )
         return result
+
+    async def _extract_last_payment(self, page: Page) -> Optional[str]:
+        """Extract most recent payment date from the Tax Information and Receipts page."""
+        try:
+            body = await page.evaluate("() => document.body.innerText")
+            if not body:
+                return None
+
+            # Find all dates that look like payment dates
+            # ACTweb receipt page shows dates like "01/21/2022" or "January 21, 2022"
+            dates = re.findall(
+                r'\b(?:0?[1-9]|1[0-2])[/\-](?:0?[1-9]|[12]\d|3[01])[/\-](?:19|20)\d{2}\b'
+                r'|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}',
+                body,
+                re.IGNORECASE,
+            )
+            if dates:
+                # Return the first (most recent) date on the receipt page
+                return dates[0].strip()
+        except Exception as exc:
+            log.warning("tax_receipt_extract_failed", error=str(exc))
+        return None
 
 
 def _parse_amount(text: str) -> float:

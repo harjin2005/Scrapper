@@ -103,3 +103,5 @@ class TaxData(BaseModel):
     cause_number: Optional[str] = None
     cause_date: Optional[str] = None
     total_due: Optional[str] = None
+    property_address: Optional[str] = None
+    appraised_value: Optional[str] = None

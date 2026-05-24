@@ -18,12 +18,28 @@ _SEARCH_URL = _BASE + "/property-search"
 _DETAIL_PATH = "/property-detail/"
 
 
+def _owner_matches(expected: str, found: str) -> bool:
+    """
+    Return True if at least one significant word (>2 chars) from the expected owner
+    appears in the found owner name. Handles name order differences and partial matches.
+    """
+    if not expected or not found:
+        return True  # can't validate → assume OK
+    expected_words = {w for w in expected.upper().split() if len(w) > 2}
+    found_words = {w for w in found.upper().split() if len(w) > 2}
+    return bool(expected_words & found_words)
+
+
 class MCADLookup:
     def __init__(self, config: Config) -> None:
         self.config = config
 
-    async def lookup(self, account_number: str) -> CADData:
-        """Primary search: by account number. Returns CADData."""
+    async def lookup(self, account_number: str, expected_owner: str = "") -> CADData:
+        """Primary search: by account number. Returns CADData.
+        expected_owner: owner name from Excel — used to validate the MCAD result
+        is actually the right property (MCAD may return a different property for
+        accounts not registered there).
+        """
         if not account_number:
             return CADData()
         try:
@@ -33,7 +49,7 @@ class MCADLookup:
                 # Use shorter timeout for MCAD — fail fast if site unreachable
                 page.set_default_timeout(15000)
                 try:
-                    return await self._search(page, account_number)
+                    return await self._search(page, account_number, expected_owner)
                 finally:
                     await browser.close()
         except Exception as exc:
@@ -41,7 +57,7 @@ class MCADLookup:
             return CADData()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def _search(self, page: Page, account_number: str) -> CADData:
+    async def _search(self, page: Page, account_number: str, expected_owner: str = "") -> CADData:
         await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
         await asyncio.sleep(2)
 
@@ -78,6 +94,17 @@ class MCADLookup:
         prop_type_code = await self._get_cell_text(page, "propType")
         address = f"{street} {city}".strip() if street else city
 
+        # Validate that the grid result is actually the property we're looking for.
+        # MCAD sometimes returns a different property for accounts not registered there.
+        if owner and expected_owner and not _owner_matches(expected_owner, owner):
+            log.info(
+                "mcad_owner_mismatch_skipping",
+                account=account_number,
+                expected=expected_owner,
+                found=owner,
+            )
+            return CADData()
+
         # Map single-letter code to full description
         _TYPE_MAP = {
             "R": "Residential", "C": "Commercial", "A": "Agricultural",
@@ -103,7 +130,7 @@ class MCADLookup:
             if detail.get("mailing_address"):
                 cad.mailing_address = detail["mailing_address"]
             if detail.get("owner_name"):
-                cad.owner_contact = detail["owner_name"]  # store current owner
+                cad.owner_contact = detail["owner_name"]
 
         log.info("mcad_extracted", account=account_number,
                  has_value=bool(cad.appraised_value),
