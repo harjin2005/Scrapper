@@ -100,14 +100,11 @@ def load_excel(path: str, excel_file_date: str) -> list[DelinquentRecord]:
         # Lot size from LEGACRES
         lot_size = _clean_str(first.get("LEGACRES", ""))
 
-        # Total due — sum all financial columns for all rows under this CAN.
-        # TOT_PERCAN is a per-row/per-unit amount (not a grand total).
-        # Authoritative current balance comes from Tax Office website (overrides this in main.py).
-        # Formula: LEVY_BALANCE + PENDUE + INTDUE + PANDI_ATTY + ATTY_FEE + COURT_COST + ABSTRACT_FEE + OTHER_FEE
-        # Note: PANDI = PENDUE + INTDUE (same values), so we don't double-count.
-        _FINANCIAL_COLS = ["LEVY_BALANCE", "PENDUE", "INTDUE", "PANDI_ATTY", "ATTY_FEE",
-                           "COURT_COST", "ABSTRACT_FEE", "OTHER_FEE"]
-
+        # Total due — sum TOT_PERCAN across all rows for this CAN.
+        # TOT_PERCAN = LEVY_BALANCE + PENDUE + INTDUE + ATTY_FEE (county pre-computed).
+        # PANDI_ATTY is NOT an additional fee — it's an attorney P&I tracking field
+        # already reflected in the balance; adding it inflates the total by ~30%.
+        # Authoritative live balance comes from Tax Office website (overrides this in main.py).
         def _to_float(val: str) -> float:
             try:
                 return float(re.sub(r"[^\d.]", "", str(val))) if str(val) not in ("nan", "") else 0.0
@@ -115,11 +112,16 @@ def load_excel(path: str, excel_file_date: str) -> list[DelinquentRecord]:
                 return 0.0
 
         try:
-            grand_total = sum(
-                group[col].apply(_to_float).sum()
-                for col in _FINANCIAL_COLS
-                if col in group.columns
-            )
+            if "TOT_PERCAN" in group.columns:
+                grand_total = group["TOT_PERCAN"].apply(_to_float).sum()
+            else:
+                # Fallback: LEVY_BALANCE + PENDUE + INTDUE + ATTY_FEE (verified formula)
+                grand_total = sum(
+                    group[col].apply(_to_float).sum()
+                    for col in ["LEVY_BALANCE", "PENDUE", "INTDUE", "ATTY_FEE",
+                                "COURT_COST", "ABSTRACT_FEE", "OTHER_FEE"]
+                    if col in group.columns
+                )
             total_due = str(round(grand_total, 2)) if grand_total > 0 else None
         except Exception:
             total_due = None
