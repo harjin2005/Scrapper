@@ -126,11 +126,12 @@ def load_excel(path: str, excel_file_date: str) -> list[DelinquentRecord]:
 
         # Delinquency years from YEAR column
         years: list[int] = []
-        for y in group["YEAR"].dropna():
-            try:
-                years.append(int(float(str(y))))
-            except (ValueError, TypeError):
-                pass
+        if "YEAR" in group.columns:
+            for y in group["YEAR"].dropna():
+                try:
+                    years.append(int(float(str(y))))
+                except (ValueError, TypeError):
+                    pass
 
         initial_year = str(min(years)) if years else None
         years_behind = str(len(set(years))) if years else None

@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import re
 from typing import Optional
-from tenacity import retry, stop_after_attempt, wait_exponential
 from playwright.async_api import async_playwright, Page
 from montgomery.config import Config
 from montgomery.models import CADData
@@ -42,21 +41,24 @@ class MCADLookup:
         """
         if not account_number:
             return CADData()
-        try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(headless=self.config.headless)
-                page = await browser.new_page()
-                # Use shorter timeout for MCAD — fail fast if site unreachable
-                page.set_default_timeout(15000)
-                try:
-                    return await self._search(page, account_number, expected_owner)
-                finally:
-                    await browser.close()
-        except Exception as exc:
-            log.error("mcad_lookup_failed", account=account_number, error=str(exc))
-            return CADData()
+        for attempt in range(self.config.retry_attempts):
+            try:
+                async with async_playwright() as pw:
+                    browser = await pw.chromium.launch(headless=self.config.headless)
+                    page = await browser.new_page()
+                    page.set_default_timeout(15000)
+                    try:
+                        return await self._search(page, account_number, expected_owner)
+                    finally:
+                        await browser.close()
+            except Exception as exc:
+                if attempt < self.config.retry_attempts - 1:
+                    log.warning("mcad_lookup_retry", account=account_number, attempt=attempt + 1, error=str(exc))
+                    await asyncio.sleep(3)
+                else:
+                    log.error("mcad_lookup_failed", account=account_number, error=str(exc))
+        return CADData()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def _search(self, page: Page, account_number: str, expected_owner: str = "") -> CADData:
         await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
         await asyncio.sleep(2)
@@ -92,7 +94,7 @@ class MCADLookup:
         street = await self._get_cell_text(page, "streetPrimary")
         city = await self._get_cell_text(page, "city")
         prop_type_code = await self._get_cell_text(page, "propType")
-        address = f"{street} {city}".strip() if street else city
+        address = " ".join(x for x in [street, city] if x).strip() or None
 
         # Validate that the grid result is actually the property we're looking for.
         # MCAD sometimes returns a different property for accounts not registered there.

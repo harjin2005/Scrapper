@@ -1,4 +1,6 @@
 from __future__ import annotations
+import re
+import sys
 from typing import Optional
 from pathlib import Path
 from google.oauth2.credentials import Credentials
@@ -52,6 +54,7 @@ class SheetsWriter:
         self._token_path = token_path
         self._service = None
         self._sheet_name = "Montgomery"
+        self._account_map_cache: dict[str, int] | None = None
 
     def _get_service(self):
         if self._service:
@@ -64,6 +67,11 @@ class SheetsWriter:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
+                if not sys.stdin.isatty():
+                    raise RuntimeError(
+                        "Google token missing. Run interactively first to complete OAuth:\n"
+                        "  python -m montgomery.main --file <path>"
+                    )
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self._creds_path, SCOPES
                 )
@@ -124,10 +132,16 @@ class SheetsWriter:
                 mapping[str(row[0]).strip()] = i
         return mapping
 
+    def _cached_account_map(self) -> dict[str, int]:
+        """Load account→row map once per session and cache it."""
+        if self._account_map_cache is None:
+            self._account_map_cache = self._get_existing_account_numbers()
+        return self._account_map_cache
+
     def upsert(self, record: DelinquentRecord) -> str:
         """Insert or update one record. Returns 'added' or 'updated'."""
         self._ensure_headers()
-        existing = self._get_existing_account_numbers()
+        existing = self._cached_account_map()
         row_data = record.to_sheet_row()
 
         if record.account_number in existing:
@@ -142,13 +156,18 @@ class SheetsWriter:
             log.info("row_updated", account=record.account_number, row=row_idx)
             return "updated"
         else:
-            self._get_service().spreadsheets().values().append(
+            resp = self._get_service().spreadsheets().values().append(
                 spreadsheetId=self.spreadsheet_id,
                 range=f"{self._sheet_name}!A1",
                 valueInputOption="RAW",
                 insertDataOption="INSERT_ROWS",
                 body={"values": [row_data]},
             ).execute()
+            # Update cache with the actual row the API inserted at
+            updated_range = resp.get("updates", {}).get("updatedRange", "")
+            m = re.search(r"!A(\d+)", updated_range)
+            if m:
+                existing[record.account_number] = int(m.group(1))
             log.info("row_added", account=record.account_number)
             return "added"
 

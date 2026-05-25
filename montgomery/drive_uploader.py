@@ -1,4 +1,5 @@
 from __future__ import annotations
+import sys
 from pathlib import Path
 from datetime import date
 from google.oauth2.credentials import Credentials
@@ -40,6 +41,11 @@ class DriveUploader:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
+                if not sys.stdin.isatty():
+                    raise RuntimeError(
+                        "Google token missing. Run interactively first to complete OAuth:\n"
+                        "  python -m montgomery.main --file <path>"
+                    )
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self._creds_path, SCOPES
                 )

@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import re
 from typing import Optional
-from tenacity import retry, stop_after_attempt, wait_exponential
 from playwright.async_api import async_playwright, Page
 from montgomery.config import Config
 from montgomery.models import TaxData
@@ -30,22 +29,24 @@ class TaxLookup:
     async def lookup(self, account_number: str) -> TaxData:
         if not account_number:
             return TaxData()
-        try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(headless=self.config.headless)
-                page = await browser.new_page()
-                # Shorter timeout per request — don't wait forever if blocked
-                page.set_default_timeout(20000)
-                try:
-                    return await self._search(page, account_number)
-                finally:
-                    await browser.close()
-        except Exception as exc:
-            log.error("tax_lookup_failed", account=account_number, error=str(exc))
-            return TaxData()
+        for attempt in range(self.config.retry_attempts):
+            try:
+                async with async_playwright() as pw:
+                    browser = await pw.chromium.launch(headless=self.config.headless)
+                    page = await browser.new_page()
+                    page.set_default_timeout(self.config.request_timeout_ms)
+                    try:
+                        return await self._search(page, account_number)
+                    finally:
+                        await browser.close()
+            except Exception as exc:
+                if attempt < self.config.retry_attempts - 1:
+                    log.warning("tax_lookup_retry", account=account_number, attempt=attempt + 1, error=str(exc))
+                    await asyncio.sleep(5)
+                else:
+                    log.error("tax_lookup_failed", account=account_number, error=str(exc))
+        return TaxData()
 
-    # Only 1 retry — avoid hammering blocked site
-    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=5, max=15))
     async def _search(self, page: Page, account_number: str) -> TaxData:
         log.info("tax_search", account=account_number, url=_SEARCH_URL)
         await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
@@ -146,7 +147,7 @@ class TaxLookup:
             m = re.search(pattern, body, re.IGNORECASE)
             if m:
                 val = m.group(1).replace(",", "").strip()
-                if float(val) > 0:
+                if _parse_amount(val) > 0:
                     result.total_due = val
                     break
 
@@ -174,7 +175,7 @@ class TaxLookup:
             m = re.search(pattern, body, re.IGNORECASE)
             if m:
                 val = m.group(1).replace(",", "").strip()
-                if float(val) > 0:
+                if _parse_amount(val) > 0:
                     result.appraised_value = val
                     break
 
@@ -241,7 +242,6 @@ class TaxLookup:
             total_due=result.total_due,
             initial_year=result.initial_delinquency_year,
             years_behind=result.years_behind,
-            property_address=result.property_address,
         )
         return result
 
