@@ -48,12 +48,13 @@ class SheetsWriter:
         spreadsheet_id: str,
         credentials_path: str,
         token_path: str,
+        sheet_name: str = "Montgomery",
     ) -> None:
         self.spreadsheet_id = spreadsheet_id
         self._creds_path = credentials_path
         self._token_path = token_path
         self._service = None
-        self._sheet_name = "Montgomery"
+        self._sheet_name = sheet_name
         self._account_map_cache: dict[str, int] | None = None
 
     def _get_service(self):

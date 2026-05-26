@@ -18,7 +18,9 @@ _SEARCH_URL = _BASE + _PATH_PREFIX + "index.jsp"
 _SEL_ACCOUNT_INPUT = "input[name='accountNumber']"
 _SEL_SEARCH_BTN = "input[type='submit'], button[type='submit']"
 # ACTweb showlist links: href="showdetail.jsp?can=..." (relative, no leading slash)
-_SEL_RESULT_LINK = "a[href*='showdetail'], a[href*='detail.jsp'], table a[href]"
+# Do NOT use generic "table a[href]" — it matches nav buttons and gives wrong element
+_SEL_RESULT_LINK = "a[href*='showdetail'], a[href*='detail.jsp']"
+_NO_RESULTS_PATTERNS = ["no account", "no results", "no records", "not found", "0 account"]
 _SEL_TAX_ROWS = "table tr"
 
 
@@ -83,6 +85,12 @@ class TaxLookup:
         # Navigate from showlist to detail page
         if "showlist" in current_url or "index" in current_url:
             try:
+                body_text = (await page.evaluate("() => document.body.innerText")).lower()
+                # Detect no-results page early — don't try to navigate
+                if any(p in body_text for p in _NO_RESULTS_PATTERNS):
+                    log.info("tax_no_results", account=account_number)
+                    return TaxData()
+
                 await page.wait_for_selector(_SEL_RESULT_LINK, timeout=8000)
                 links = page.locator(_SEL_RESULT_LINK)
                 count = await links.count()

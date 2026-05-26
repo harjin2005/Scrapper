@@ -34,6 +34,7 @@ async def run(
     config_path: str = "montgomery/config/config.yaml",
     local_xlsx: str | None = None,
     limit: int | None = None,
+    sheet_name: str | None = None,
 ) -> None:
     cfg = load_config(config_path)
     run_date = date.today()
@@ -73,6 +74,7 @@ async def run(
         spreadsheet_id=cfg.google_sheets_id,
         credentials_path=cfg.google_credentials_path,
         token_path=cfg.google_token_path,
+        sheet_name=sheet_name or "Montgomery",
     )
     checkpoint = Checkpoint(cfg.checkpoint_dir, as_of_date)
 
@@ -222,8 +224,9 @@ def main() -> None:
     parser.add_argument("--file", help="Path to local Excel file (skips website download)")
     parser.add_argument("--config", default="montgomery/config/config.yaml")
     parser.add_argument("--limit", type=int, default=None, help="Stop after N records written to Sheet, then upload to Drive")
+    parser.add_argument("--sheet", default=None, help="Target sheet tab name (default: Montgomery)")
     args = parser.parse_args()
-    asyncio.run(run(config_path=args.config, local_xlsx=args.file, limit=args.limit))
+    asyncio.run(run(config_path=args.config, local_xlsx=args.file, limit=args.limit, sheet_name=args.sheet))
 
 
 if __name__ == "__main__":
