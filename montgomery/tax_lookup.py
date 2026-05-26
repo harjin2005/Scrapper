@@ -137,27 +137,35 @@ class TaxLookup:
 
         log.info("tax_detail_url", account=account_number, url=page.url)
         result = await self._extract_detail(page)
+        detail_url = page.url
 
-        # Navigate to Tax Information and Receipts to get last payment date
-        try:
-            receipt_link = page.locator("a[href*='showreceipt'], a[href*='receipt']").first
-            if await receipt_link.count() > 0:
-                href = await receipt_link.get_attribute("href") or ""
-                if href.startswith("http"):
-                    receipt_url = href
-                elif href.startswith("/"):
-                    receipt_url = _BASE + href
-                else:
-                    receipt_url = _BASE + _PATH_PREFIX + href
-                log.info("tax_navigating_receipts", url=receipt_url)
-                await page.goto(receipt_url, wait_until="domcontentloaded")
+        # Navigate to taxbyyear.jsp to get initial delinquency year and years behind
+        if "showdetail2.jsp" in detail_url:
+            year_url = detail_url.replace("showdetail2.jsp", "reports/taxbyyear.jsp")
+            try:
+                log.info("tax_navigating_year_detail", url=year_url, account=account_number)
+                await page.goto(year_url, wait_until="domcontentloaded")
+                await asyncio.sleep(2)
+                init_year, years_behind = await self._extract_year_detail(page)
+                if init_year:
+                    result.initial_delinquency_year = init_year
+                    result.years_behind = years_behind
+                    log.info("tax_year_detail_found", initial_year=init_year, years_behind=years_behind, account=account_number)
+            except Exception as exc:
+                log.warning("tax_year_detail_failed", account=account_number, error=str(exc))
+
+            # Navigate to paymentinfo.jsp to get last payment date
+            payment_url = detail_url.replace("showdetail2.jsp", "reports/paymentinfo.jsp")
+            try:
+                log.info("tax_navigating_payment_info", url=payment_url, account=account_number)
+                await page.goto(payment_url, wait_until="domcontentloaded")
                 await asyncio.sleep(2)
                 last_paid = await self._extract_last_payment(page)
                 if last_paid:
                     result.last_payment_date = last_paid
                     log.info("tax_last_payment_found", date=last_paid, account=account_number)
-        except Exception as exc:
-            log.warning("tax_receipt_nav_failed", account=account_number, error=str(exc))
+            except Exception as exc:
+                log.warning("tax_payment_nav_failed", account=account_number, error=str(exc))
 
         return result
 
@@ -184,20 +192,28 @@ class TaxLookup:
                     result.total_due = val
                     break
 
-        # Property address (situs) — "Situs: 2170 BROWN RD CONROE TX 77378"
-        for pattern in [
-            r"Situs[:\s]+([^\n]{10,80})",
-            r"Property\s+Address[:\s]+([^\n]{10,80})",
-            r"Site\s+Address[:\s]+([^\n]{10,80})",
-            r"Location[:\s]+([^\n]{10,80})",
-        ]:
-            m = re.search(pattern, body, re.IGNORECASE)
-            if m:
-                addr = m.group(1).strip()
-                # Filter out generic text
-                if addr and not re.match(r'^(type|code|owner|name)', addr, re.IGNORECASE):
-                    result.property_address = addr
-                    break
+        # Property address — ACTweb shows "Property Site Address:\n2170 BROWN RD\n77378"
+        # Try multiline pattern first (address + zip on separate lines)
+        m = re.search(
+            r"Property\s+Site\s+Address[:\s\n]+([^\n]{5,60})\n\s*(\d{5}(?:-\d{4})?)",
+            body, re.IGNORECASE
+        )
+        if m:
+            result.property_address = f"{m.group(1).strip()} {m.group(2).strip()}"
+        else:
+            for pattern in [
+                r"Property\s+Site\s+Address[:\s]+([^\n]{5,80})",
+                r"Situs[:\s]+([^\n]{10,80})",
+                r"Property\s+Address[:\s]+([^\n]{10,80})",
+                r"Site\s+Address[:\s]+([^\n]{10,80})",
+                r"Location[:\s]+([^\n]{10,80})",
+            ]:
+                m = re.search(pattern, body, re.IGNORECASE)
+                if m:
+                    addr = m.group(1).strip()
+                    if addr and not re.match(r'^(type|code|owner|name)', addr, re.IGNORECASE):
+                        result.property_address = addr
+                        break
 
         # Gross/appraised value from Tax website — fallback when CAD not available
         for pattern in [
@@ -211,47 +227,6 @@ class TaxLookup:
                 if _parse_amount(val) > 0:
                     result.appraised_value = val
                     break
-
-        # Initial delinquency year — look for delinquent year entries in tax table
-        year_pattern = re.compile(r"\b(20\d{2}|19\d{2})\b")
-        delinquent_years: list[int] = []
-
-        try:
-            rows = page.locator(_SEL_TAX_ROWS)
-            row_count = await rows.count()
-            for i in range(1, row_count):
-                row = rows.nth(i)
-                cells = row.locator("td")
-                cell_count = await cells.count()
-                if cell_count < 2:
-                    continue
-                year_cell = (await cells.nth(0).inner_text()).strip()
-                total_cell = (await cells.nth(cell_count - 1).inner_text()).strip()
-                year_m = year_pattern.match(year_cell)
-                amount = _parse_amount(total_cell)
-                if year_m and amount > 0:
-                    delinquent_years.append(int(year_m.group()))
-        except Exception:
-            for m in re.finditer(r"\b(20\d{2}|19\d{2})\b.*?\$([\d,]+\.?\d*)", body):
-                amt = _parse_amount(m.group(2))
-                if amt > 0:
-                    delinquent_years.append(int(m.group(1)))
-
-        if delinquent_years:
-            result.initial_delinquency_year = str(min(delinquent_years))
-            result.years_behind = str(len(set(delinquent_years)))
-
-        # Last payment date — also try from main detail page body
-        for pattern in [
-            r"Last\s+Payment\s+Date[:\s]+([\w\s,/\-]+\d{4})",
-            r"Date\s+of\s+Last\s+Payment[:\s]+([\w\s,/\-]+\d{4})",
-            r"Paid\s+(?:in\s+Full\s+)?(?:on|through)[:\s]+([\w\s,/\-]+\d{4})",
-            r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
-        ]:
-            m = re.search(pattern, body, re.IGNORECASE)
-            if m:
-                result.last_payment_date = m.group(0).strip() if m.lastindex is None else m.group(1).strip()
-                break
 
         # Cause / lawsuit number
         for pattern in [
@@ -278,26 +253,65 @@ class TaxLookup:
         )
         return result
 
+    async def _extract_year_detail(self, page: Page) -> tuple[str | None, str | None]:
+        """Parse taxbyyear.jsp — returns (initial_delinquency_year, years_behind)."""
+        year_pat = re.compile(r"^(20\d{2}|19\d{2})$")
+        years: list[int] = []
+        try:
+            rows = page.locator("table tr")
+            row_count = await rows.count()
+            for i in range(row_count):
+                cells = rows.nth(i).locator("td")
+                cc = await cells.count()
+                if cc < 4:
+                    continue
+                cell0 = (await cells.nth(0).inner_text()).strip()
+                if year_pat.match(cell0):
+                    # Column 3 is "Total Due (pay by first deadline)" — first non-zero amount
+                    for ci in range(1, cc):
+                        raw = (await cells.nth(ci).inner_text()).strip()
+                        if _parse_amount(raw) > 0:
+                            years.append(int(cell0))
+                            break
+        except Exception:
+            # Fallback: regex on page text
+            try:
+                body = await page.evaluate("() => document.body.innerText")
+                for m in re.finditer(r"^(20\d{2}|19\d{2})\s+\$[\d,]+", body, re.MULTILINE):
+                    years.append(int(m.group(1)))
+            except Exception as exc:
+                log.warning("tax_year_regex_fallback_failed", error=str(exc))
+
+        if years:
+            return str(min(years)), str(len(set(years)))
+        return None, None
+
     async def _extract_last_payment(self, page: Page) -> Optional[str]:
-        """Extract most recent payment date from the Tax Information and Receipts page."""
+        """Extract most recent payment date from paymentinfo.jsp."""
         try:
             body = await page.evaluate("() => document.body.innerText")
             if not body:
                 return None
 
-            # Find all dates that look like payment dates
-            # ACTweb receipt page shows dates like "01/21/2022" or "January 21, 2022"
-            dates = re.findall(
-                r'\b(?:0?[1-9]|1[0-2])[/\-](?:0?[1-9]|[12]\d|3[01])[/\-](?:19|20)\d{2}\b'
-                r'|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}',
-                body,
-                re.IGNORECASE,
+            # paymentinfo.jsp rows: "2022-01-21\t$162.79\t2021\tPayment\t..."
+            # Only accept YYYY-MM-DD dates adjacent to a dollar amount (real payment rows)
+            # The page header shows "Tuesday, May 26, 2026" which is NOT this format
+            payment_rows = re.findall(
+                r'\b((?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b[^\n]*\$[\d,]+',
+                body
             )
-            if dates:
-                # Return the first (most recent) date on the receipt page
-                return dates[0].strip()
+            if payment_rows:
+                return payment_rows[0]
+
+            # Fallback: MM/DD/YYYY near a dollar amount
+            dates2 = re.findall(
+                r'\b((?:0?[1-9]|1[0-2])[/\-](?:0?[1-9]|[12]\d|3[01])[/\-](?:19|20)\d{2})\b[^\n]*\$[\d,]+',
+                body, re.IGNORECASE,
+            )
+            if dates2:
+                return dates2[0].strip()
         except Exception as exc:
-            log.warning("tax_receipt_extract_failed", error=str(exc))
+            log.warning("tax_payment_extract_failed", error=str(exc))
         return None
 
 
