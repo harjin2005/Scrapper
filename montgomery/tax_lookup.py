@@ -50,39 +50,52 @@ class TaxLookup:
         return TaxData()
 
     async def _search(self, page: Page, account_number: str) -> TaxData:
-        log.info("tax_search", account=account_number, url=_SEARCH_URL)
-        await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
+        # Try direct detail URL first — faster, skips search form entirely
+        direct_url = _BASE + _PATH_PREFIX + f"showdetail.jsp?can={account_number}"
+        log.info("tax_direct_url", account=account_number, url=direct_url)
+        await page.goto(direct_url, wait_until="domcontentloaded")
         await asyncio.sleep(2)
 
-        # Try account number input
-        input_sel = None
-        for sel in [_SEL_ACCOUNT_INPUT, "input[name='ownerName']", "input[type='text']"]:
+        direct_body = (await page.evaluate("() => document.body.innerText")).lower()
+        on_detail = (
+            "showdetail" in page.url.lower() or
+            any(kw in direct_body for kw in ["total due", "balance due", "levy", "delinquent", "appraised"])
+        )
+        no_result = any(p in direct_body for p in _NO_RESULTS_PATTERNS + ["property search", "search by"])
+
+        if on_detail and not no_result:
+            log.info("tax_direct_hit", account=account_number)
+        else:
+            # Fallback: use search form
+            log.info("tax_search_fallback", account=account_number, url=_SEARCH_URL)
+            await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
+            await asyncio.sleep(2)
+
+            input_sel = None
+            for sel in [_SEL_ACCOUNT_INPUT, "input[name='ownerName']", "input[type='text']"]:
+                try:
+                    await page.wait_for_selector(sel, timeout=8000)
+                    input_sel = sel
+                    break
+                except Exception:
+                    continue
+
+            if not input_sel:
+                log.warning("tax_search_input_not_found", account=account_number)
+                return TaxData()
+
+            await page.fill(input_sel, account_number)
+            await asyncio.sleep(0.3)
             try:
-                await page.wait_for_selector(sel, timeout=8000)
-                input_sel = sel
-                break
+                await page.click(_SEL_SEARCH_BTN)
             except Exception:
-                continue
-
-        if not input_sel:
-            log.warning("tax_search_input_not_found", account=account_number)
-            return TaxData()
-
-        await page.fill(input_sel, account_number)
-        await asyncio.sleep(0.3)
-
-        # Submit form
-        try:
-            await page.click(_SEL_SEARCH_BTN)
-        except Exception:
-            await page.keyboard.press("Enter")
-
-        await asyncio.sleep(3)
+                await page.keyboard.press("Enter")
+            await asyncio.sleep(3)
 
         current_url = page.url
         log.info("tax_post_search_url", account=account_number, url=current_url)
 
-        # Navigate from showlist to detail page
+        # Navigate from showlist to detail page (only if direct URL didn't land on detail)
         if "showlist" in current_url or "index" in current_url:
             try:
                 body_text = (await page.evaluate("() => document.body.innerText")).lower()
