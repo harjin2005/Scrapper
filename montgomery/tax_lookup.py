@@ -50,8 +50,10 @@ class TaxLookup:
         return TaxData()
 
     async def _search(self, page: Page, account_number: str) -> TaxData:
+        # ACTweb uses the short account number without leading zeros
+        can_short = account_number.lstrip('0') or account_number
         # Try direct detail URL first — faster, skips search form entirely
-        direct_url = _BASE + _PATH_PREFIX + f"showdetail.jsp?can={account_number}"
+        direct_url = _BASE + _PATH_PREFIX + f"showdetail.jsp?can={can_short}"
         log.info("tax_direct_url", account=account_number, url=direct_url)
         await page.goto(direct_url, wait_until="domcontentloaded")
         await asyncio.sleep(2)
@@ -84,7 +86,7 @@ class TaxLookup:
                 log.warning("tax_search_input_not_found", account=account_number)
                 return TaxData()
 
-            await page.fill(input_sel, account_number)
+            await page.fill(input_sel, can_short)
             await asyncio.sleep(0.3)
             try:
                 await page.click(_SEL_SEARCH_BTN)

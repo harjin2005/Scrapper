@@ -84,12 +84,21 @@ def load_excel(path: str, excel_file_date: str) -> list[DelinquentRecord]:
         # Owner name + mailing address from ADDRSTRING
         owner, mailing = _parse_owner_and_mailing(first.get("ADDRSTRING", ""))
 
-        # Property address = PNUMBER + PSTRNAME
+        # Append zip code to mailing address if available
+        zipraw = _clean_str(first.get("ZIPCODE", ""))
+        if zipraw and mailing:
+            # Format 9-digit zip as 5+4 (e.g., 790655404 → 79065-5404)
+            if len(zipraw) == 9 and zipraw.isdigit():
+                zipraw = f"{zipraw[:5]}-{zipraw[5:]}"
+            if zipraw not in mailing:
+                mailing = f"{mailing} {zipraw}".strip()
+
+        # Property address = PNUMBER + PSTRNAME (city/zip filled by Tax Office if found)
         pnum = _clean_str(first.get("PNUMBER", ""))
         pstr = _clean_str(first.get("PSTRNAME", ""))
         prop_address = f"{pnum} {pstr}".strip() if (pnum or pstr) else ""
 
-        # Legal description
+        # Legal description — kept as-is (contains subdivision/lot/block for geographic ID)
         legal = _clean_str(first.get("LGLSTRING", ""))
 
         # Property type from ROLL code

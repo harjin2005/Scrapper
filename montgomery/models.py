@@ -29,24 +29,27 @@ class DelinquentRecord(BaseModel):
     updated_at: Optional[datetime] = None
 
     def to_sheet_row(self) -> list:
+        def _val(v, placeholder: str = "N/A") -> str:
+            return str(v).strip() if v and str(v).strip() not in ("", "None") else placeholder
+
         return [
             self.account_number,
-            self.property_owner,
-            self.property_address,
-            self.property_mailing_address or "",
-            self.property_type or "",
-            self.property_type_code or "",
-            self.lot_size or "",
-            self.legal_description or "",
-            self.owner_contact_number or "",
-            self.email or "",
-            self.last_tax_payment_date or "",
-            self.initial_delinquency_year or "",
-            self.years_behind_taxes or "",
-            self.cause_or_lawsuit_no or "",
-            self.cause_date or "",
-            self.appraised_value or "",
-            self.total_tax_due or "",
+            _val(self.property_owner, "N/A"),
+            _val(self.property_address, "N/A"),
+            _val(self.property_mailing_address, "N/A"),
+            _val(self.property_type, "N/A"),
+            _val(self.property_type_code, "N/A"),
+            _val(self.lot_size, "N/A"),
+            _val(self.legal_description, "N/A"),
+            _val(self.owner_contact_number, "N/A"),
+            _val(self.email, "N/A"),
+            _val(self.last_tax_payment_date, "N/A"),
+            _val(self.initial_delinquency_year, "N/A"),
+            _val(self.years_behind_taxes, "N/A"),
+            _val(self.cause_or_lawsuit_no, "N/A"),
+            _val(self.cause_date, "N/A"),
+            _val(self.appraised_value, "N/A"),
+            _val(self.total_tax_due, "N/A"),
             self.county,
             self.excel_file_date,
             str(self.created_at or ""),
