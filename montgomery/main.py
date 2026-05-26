@@ -119,7 +119,7 @@ async def run(
 
         # Tax Office cross-reference — authoritative for current total_due and last payment date
         try:
-            tax_data = await tax.lookup(acct)
+            tax_data = await tax.lookup(acct, cad_ref=getattr(rec, "_aprdistacc", None))
             # Tax website balance includes all penalties/interest — always prefer over Excel amount
             if tax_data.total_due:
                 rec.total_tax_due = tax_data.total_due

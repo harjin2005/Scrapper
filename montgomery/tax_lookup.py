@@ -14,11 +14,13 @@ _BASE = "https://actweb.acttax.com"
 _PATH_PREFIX = "/act_webdev/montgomery/"
 _SEARCH_URL = _BASE + _PATH_PREFIX + "index.jsp"
 
-# Form field selectors (JSP portal, static HTML)
-_SEL_ACCOUNT_INPUT = "input[name='accountNumber']"
+# Form field selectors (JSP portal)
+# ACTweb uses radio button "searchby" to choose search type; value=4 = Account Search
+# Default radio (value=3) is Name Search — submitting an account number to it returns 0 results
+_SEL_ACCOUNT_RADIO = "input[name='searchby'][value='4']"
+_SEL_CAD_RADIO = "input[name='searchby'][value='5']"   # CAD Reference Search fallback
+_SEL_CRITERIA_INPUT = "input[name='criteria']"
 _SEL_SEARCH_BTN = "input[type='submit'], button[type='submit']"
-# ACTweb showlist links: href="showdetail.jsp?can=..." (relative, no leading slash)
-# Do NOT use generic "table a[href]" — it matches nav buttons and gives wrong element
 _SEL_RESULT_LINK = "a[href*='showdetail'], a[href*='detail.jsp']"
 _NO_RESULTS_PATTERNS = ["no account", "no results", "no records", "not found", "0 account"]
 _SEL_TAX_ROWS = "table tr"
@@ -28,7 +30,7 @@ class TaxLookup:
     def __init__(self, config: Config) -> None:
         self.config = config
 
-    async def lookup(self, account_number: str) -> TaxData:
+    async def lookup(self, account_number: str, cad_ref: str | None = None) -> TaxData:
         if not account_number:
             return TaxData()
         for attempt in range(self.config.retry_attempts):
@@ -38,7 +40,7 @@ class TaxLookup:
                     page = await browser.new_page()
                     page.set_default_timeout(self.config.request_timeout_ms)
                     try:
-                        return await self._search(page, account_number)
+                        return await self._search(page, account_number, cad_ref=cad_ref)
                     finally:
                         await browser.close()
             except Exception as exc:
@@ -49,50 +51,35 @@ class TaxLookup:
                     log.error("tax_lookup_failed", account=account_number, error=str(exc))
         return TaxData()
 
-    async def _search(self, page: Page, account_number: str) -> TaxData:
-        # ACTweb uses the short account number without leading zeros
+    async def _search(self, page: Page, account_number: str, cad_ref: str | None = None) -> TaxData:
+        # ACTweb uses short account number (no leading zeros) with radio value=4 (Account Search)
         can_short = account_number.lstrip('0') or account_number
-        # Try direct detail URL first — faster, skips search form entirely
-        direct_url = _BASE + _PATH_PREFIX + f"showdetail.jsp?can={can_short}"
-        log.info("tax_direct_url", account=account_number, url=direct_url)
-        await page.goto(direct_url, wait_until="domcontentloaded")
+        log.info("tax_search", account=account_number, url=_SEARCH_URL)
+        await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
         await asyncio.sleep(2)
 
-        direct_body = (await page.evaluate("() => document.body.innerText")).lower()
-        on_detail = (
-            "showdetail" in page.url.lower() or
-            any(kw in direct_body for kw in ["total due", "balance due", "levy", "delinquent", "appraised"])
-        )
-        no_result = any(p in direct_body for p in _NO_RESULTS_PATTERNS + ["property search", "search by"])
+        # Select "Account Search" radio (value=4) — default is Name Search (value=3)
+        try:
+            await page.wait_for_selector(_SEL_ACCOUNT_RADIO, timeout=8000)
+            await page.click(_SEL_ACCOUNT_RADIO)
+        except Exception:
+            log.warning("tax_radio_not_found", account=account_number)
+            return TaxData()
 
-        if on_detail and not no_result:
-            log.info("tax_direct_hit", account=account_number)
-        else:
-            # Fallback: use search form
-            log.info("tax_search_fallback", account=account_number, url=_SEARCH_URL)
-            await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
-            await asyncio.sleep(2)
+        # Fill search criteria
+        try:
+            await page.wait_for_selector(_SEL_CRITERIA_INPUT, timeout=5000)
+        except Exception:
+            log.warning("tax_criteria_input_not_found", account=account_number)
+            return TaxData()
 
-            input_sel = None
-            for sel in [_SEL_ACCOUNT_INPUT, "input[name='ownerName']", "input[type='text']"]:
-                try:
-                    await page.wait_for_selector(sel, timeout=8000)
-                    input_sel = sel
-                    break
-                except Exception:
-                    continue
-
-            if not input_sel:
-                log.warning("tax_search_input_not_found", account=account_number)
-                return TaxData()
-
-            await page.fill(input_sel, can_short)
-            await asyncio.sleep(0.3)
-            try:
-                await page.click(_SEL_SEARCH_BTN)
-            except Exception:
-                await page.keyboard.press("Enter")
-            await asyncio.sleep(3)
+        await page.fill(_SEL_CRITERIA_INPUT, can_short)
+        await asyncio.sleep(0.3)
+        try:
+            await page.click(_SEL_SEARCH_BTN)
+        except Exception:
+            await page.keyboard.press("Enter")
+        await asyncio.sleep(3)
 
         current_url = page.url
         log.info("tax_post_search_url", account=account_number, url=current_url)
@@ -103,8 +90,29 @@ class TaxLookup:
                 body_text = (await page.evaluate("() => document.body.innerText")).lower()
                 # Detect no-results page early — don't try to navigate
                 if any(p in body_text for p in _NO_RESULTS_PATTERNS):
-                    log.info("tax_no_results", account=account_number)
-                    return TaxData()
+                    # Account Search returned nothing — try CAD Reference Search with APRDISTACC
+                    if cad_ref:
+                        log.info("tax_cad_ref_fallback", account=account_number, cad_ref=cad_ref)
+                        await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
+                        await asyncio.sleep(2)
+                        try:
+                            await page.click(_SEL_CAD_RADIO)
+                            await page.fill(_SEL_CRITERIA_INPUT, cad_ref)
+                            try:
+                                await page.click(_SEL_SEARCH_BTN)
+                            except Exception:
+                                await page.keyboard.press("Enter")
+                            await asyncio.sleep(3)
+                            body_text2 = (await page.evaluate("() => document.body.innerText")).lower()
+                            if any(p in body_text2 for p in _NO_RESULTS_PATTERNS):
+                                log.info("tax_no_results", account=account_number)
+                                return TaxData()
+                        except Exception as exc:
+                            log.warning("tax_cad_ref_search_failed", account=account_number, error=str(exc))
+                            return TaxData()
+                    else:
+                        log.info("tax_no_results", account=account_number)
+                        return TaxData()
 
                 await page.wait_for_selector(_SEL_RESULT_LINK, timeout=8000)
                 links = page.locator(_SEL_RESULT_LINK)
