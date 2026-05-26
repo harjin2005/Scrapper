@@ -59,11 +59,13 @@ class TaxLookup:
         await asyncio.sleep(2)
 
         # Select "Account Search" radio (value=4) — default is Name Search (value=3)
+        # Radio inputs may be styled/hidden; use JS click to bypass visibility checks
         try:
-            await page.wait_for_selector(_SEL_ACCOUNT_RADIO, timeout=8000)
-            await page.click(_SEL_ACCOUNT_RADIO)
-        except Exception:
-            log.warning("tax_radio_not_found", account=account_number)
+            await page.wait_for_selector(_SEL_ACCOUNT_RADIO, state="attached", timeout=8000)
+            await page.evaluate("document.querySelector(\"input[name='searchby'][value='4']\").click()")
+            log.info("tax_radio_selected", account=account_number)
+        except Exception as exc:
+            log.warning("tax_radio_not_found", account=account_number, error=str(exc))
             return TaxData()
 
         # Fill search criteria
@@ -96,7 +98,7 @@ class TaxLookup:
                         await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
                         await asyncio.sleep(2)
                         try:
-                            await page.click(_SEL_CAD_RADIO)
+                            await page.evaluate("document.querySelector(\"input[name='searchby'][value='5']\").click()")
                             await page.fill(_SEL_CRITERIA_INPUT, cad_ref)
                             try:
                                 await page.click(_SEL_SEARCH_BTN)
