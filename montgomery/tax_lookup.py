@@ -121,7 +121,34 @@ class TaxLookup:
                 count = await links.count()
                 log.info("tax_result_links_found", count=count, account=account_number)
                 if count > 0:
-                    href = await links.first.get_attribute("href") or ""
+                    # When multiple results, CAD ref search can return partial matches
+                    # (e.g. R30113 also matches R301130, R301138). Find exact match by
+                    # checking that the last table cell of each row equals the cad_ref exactly.
+                    href = ""
+                    if count > 1 and cad_ref:
+                        exact_href = await page.evaluate(
+                            """(cadRef) => {
+                                const links = document.querySelectorAll('a[href*="showdetail"]');
+                                for (const link of links) {
+                                    const row = link.closest('tr');
+                                    if (!row) continue;
+                                    const cells = Array.from(row.querySelectorAll('td'));
+                                    const lastCell = cells[cells.length - 1];
+                                    if (lastCell && lastCell.innerText.trim() === cadRef) {
+                                        return link.getAttribute('href');
+                                    }
+                                }
+                                return null;
+                            }""",
+                            cad_ref,
+                        )
+                        if exact_href:
+                            href = exact_href
+                            log.info("tax_exact_cad_match", cad_ref=cad_ref, account=account_number)
+                        else:
+                            log.warning("tax_no_exact_cad_match", cad_ref=cad_ref, count=count, account=account_number)
+                    if not href:
+                        href = await links.first.get_attribute("href") or ""
                     # Build correct absolute URL — ACTweb hrefs are relative to JSP path
                     if href.startswith("http"):
                         detail_url = href
@@ -195,23 +222,28 @@ class TaxLookup:
         # Property address — ACTweb shows "Property Site Address:\n2170 BROWN RD\n77378"
         # Try multiline pattern first (address + zip on separate lines)
         m = re.search(
-            r"Property\s+Site\s+Address[:\s\n]+([^\n]{5,60})\n\s*(\d{5}(?:-\d{4})?)",
+            r"Property\s+Site\s+Address[ \t\xa0:]+([^\n]{5,60})\n[ \t\xa0]*(\d{5}(?:-\d{4})?)",
             body, re.IGNORECASE
         )
         if m:
             result.property_address = f"{m.group(1).strip()} {m.group(2).strip()}"
         else:
+            # Use [ \t\xa0:]+ (no \n) so we don't accidentally consume a blank line
+            # and match the next label (e.g. "Legal Description:") as the address
             for pattern in [
-                r"Property\s+Site\s+Address[:\s]+([^\n]{5,80})",
-                r"Situs[:\s]+([^\n]{10,80})",
-                r"Property\s+Address[:\s]+([^\n]{10,80})",
-                r"Site\s+Address[:\s]+([^\n]{10,80})",
-                r"Location[:\s]+([^\n]{10,80})",
+                r"Property\s+Site\s+Address[ \t\xa0:]+([^\n]{5,80})",
+                r"Situs[ \t\xa0:]+([^\n]{10,80})",
+                r"Property\s+Address[ \t\xa0:]+([^\n]{10,80})",
+                r"Site\s+Address[ \t\xa0:]+([^\n]{10,80})",
+                r"Location[ \t\xa0:]+([^\n]{10,80})",
             ]:
                 m = re.search(pattern, body, re.IGNORECASE)
                 if m:
                     addr = m.group(1).strip()
-                    if addr and not re.match(r'^(type|code|owner|name)', addr, re.IGNORECASE):
+                    if addr and not re.match(
+                        r'^(type|code|owner|name|legal|description)',
+                        addr, re.IGNORECASE
+                    ):
                         result.property_address = addr
                         break
 
