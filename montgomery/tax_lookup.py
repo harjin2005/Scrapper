@@ -221,8 +221,9 @@ class TaxLookup:
 
         # Property address — ACTweb shows "Property Site Address:\n2170 BROWN RD\n77378"
         # Try multiline pattern first (address + zip on separate lines)
+        # innerText format: "Property Site Address:\n2170 BROWN RD\n77378"
         m = re.search(
-            r"Property\s+Site\s+Address[ \t\xa0:]+([^\n]{5,60})\n[ \t\xa0]*(\d{5}(?:-\d{4})?)",
+            r"Property\s+Site\s+Address[ \t\xa0:]*\n([^\n]{5,60})\n[ \t\xa0]*(\d{5}(?:-\d{4})?)",
             body, re.IGNORECASE
         )
         if m:
@@ -325,23 +326,14 @@ class TaxLookup:
             if not body:
                 return None
 
-            # paymentinfo.jsp rows: "2022-01-21\t$162.79\t2021\tPayment\t..."
-            # Only accept YYYY-MM-DD dates adjacent to a dollar amount (real payment rows)
-            # The page header shows "Tuesday, May 26, 2026" which is NOT this format
-            payment_rows = re.findall(
-                r'\b((?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b[^\n]*\$[\d,]+',
+            # paymentinfo.jsp innerText: "2022-01-21\n\t\n$162.79\xa0\n\t\n2021\n..."
+            # Page header is "Tuesday, May 27, 2026" — NOT YYYY-MM-DD — so safe to grab first match
+            dates = re.findall(
+                r'\b((?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b',
                 body
             )
-            if payment_rows:
-                return payment_rows[0]
-
-            # Fallback: MM/DD/YYYY near a dollar amount
-            dates2 = re.findall(
-                r'\b((?:0?[1-9]|1[0-2])[/\-](?:0?[1-9]|[12]\d|3[01])[/\-](?:19|20)\d{2})\b[^\n]*\$[\d,]+',
-                body, re.IGNORECASE,
-            )
-            if dates2:
-                return dates2[0].strip()
+            if dates:
+                return dates[0]
         except Exception as exc:
             log.warning("tax_payment_extract_failed", error=str(exc))
         return None
