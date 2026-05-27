@@ -1,34 +1,26 @@
 from __future__ import annotations
 import asyncio
 import re
-import requests
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
-from tenacity import retry, stop_after_attempt, wait_exponential
 from playwright.async_api import async_playwright
 from scraper.logger import get_logger
 
 log = get_logger("excel_downloader")
 
 _BASE_URL = "https://www.mctotx.org"
-_TAX_FORMS_URL = _BASE_URL + "/property/property_tax_forms.php"
 
 DELINQUENT_ROLL_PATTERN = re.compile(
     r"Delinquent\s+Tax\s+Roll\s*[-–]\s*Detail\s+as\s+of\s+([\w\s,]+\d{4})",
     re.IGNORECASE,
 )
 
-DOWNLOAD_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": _TAX_FORMS_URL,
-}
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 def get_last_processed_date(downloads_dir: str) -> Optional[str]:
@@ -47,13 +39,7 @@ async def _fetch_page_with_playwright(url: str) -> str:
     """Use Playwright to load page — handles JS challenges and cookies."""
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
-        ctx = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            )
-        )
+        ctx = await browser.new_context(user_agent=_UA)
         page = await ctx.new_page()
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -119,9 +105,8 @@ async def check_for_new_file(tax_forms_url: str, downloads_dir: str) -> Optional
     return download_url, as_of_date
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-def download_excel(download_url: str, as_of_date: str, downloads_dir: str) -> str:
-    """Download Excel file, return local path."""
+async def download_excel(download_url: str, as_of_date: str, downloads_dir: str) -> str:
+    """Download Excel file via Playwright (handles CMS redirects), return local path."""
     Path(downloads_dir).mkdir(parents=True, exist_ok=True)
 
     try:
@@ -138,13 +123,33 @@ def download_excel(download_url: str, as_of_date: str, downloads_dir: str) -> st
         return str(dest)
 
     log.info("downloading_excel", url=download_url, dest=str(dest))
-    resp = requests.get(download_url, headers=DOWNLOAD_HEADERS, timeout=120, stream=True)
-    resp.raise_for_status()
 
-    with open(dest, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=8192):
-            f.write(chunk)
+    # Use Playwright so browser handles CMS redirects and session cookies
+    for attempt in range(3):
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
+                ctx = await browser.new_context(
+                    accept_downloads=True,
+                    user_agent=_UA,
+                )
+                page = await ctx.new_page()
+                try:
+                    async with page.expect_download(timeout=180000) as dl_info:
+                        await page.goto(download_url, wait_until="commit", timeout=30000)
+                    dl = await dl_info.value
+                    await dl.save_as(str(dest))
+                finally:
+                    await browser.close()
+            size_kb = dest.stat().st_size // 1024
+            log.info("excel_downloaded", filename=filename, size_kb=size_kb)
+            return str(dest)
+        except Exception as exc:
+            if attempt < 2:
+                log.warning("excel_download_retry", attempt=attempt + 1, error=str(exc))
+                await asyncio.sleep(5)
+            else:
+                log.error("excel_download_failed", url=download_url, error=str(exc))
+                raise
 
-    size_kb = dest.stat().st_size // 1024
-    log.info("excel_downloaded", filename=filename, size_kb=size_kb)
-    return str(dest)
+    raise RuntimeError(f"download failed after 3 attempts: {download_url}")

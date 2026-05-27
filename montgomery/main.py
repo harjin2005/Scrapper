@@ -56,7 +56,7 @@ async def run(
         download_url, as_of_date = result
 
         # ── 2. Download Excel ────────────────────────────────────────────────
-        xlsx_path = download_excel(download_url, as_of_date, cfg.downloads_dir)
+        xlsx_path = await download_excel(download_url, as_of_date, cfg.downloads_dir)
 
     # ── 3. Parse Excel rows ──────────────────────────────────────────────────
     records = load_excel(xlsx_path, excel_file_date=as_of_date)
