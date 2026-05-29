@@ -102,6 +102,7 @@ async def run(
             # Preserve Excel-derived values when CAD returns nothing (don't overwrite with None)
             rec.property_type = cad_data.property_type or rec.property_type
             rec.property_type_code = cad_data.property_type_code or rec.property_type_code
+            # CAD appraised value = current year; always prefer over Excel/tax-site values
             rec.appraised_value = cad_data.appraised_value or rec.appraised_value
             rec.lot_size = (
                 cad_data.lot_size
@@ -110,6 +111,9 @@ async def run(
             )
             rec.legal_description = rec.legal_description or cad_data.legal_description
             rec.property_mailing_address = rec.property_mailing_address or cad_data.mailing_address
+            # CAD situs address is most reliable physical address — use if longer/better than Excel
+            if cad_data.situs_address and len(cad_data.situs_address) > len(rec.property_address or ""):
+                rec.property_address = cad_data.situs_address
         except Exception as exc:
             log.error("mcad_lookup_error", account=acct, error=str(exc))
             failed_mcad.append(acct)
@@ -128,10 +132,10 @@ async def run(
             # Delinquency year from Tax website only if Excel was empty
             if tax_data.initial_delinquency_year and not rec.initial_delinquency_year:
                 rec.initial_delinquency_year = tax_data.initial_delinquency_year
-            # Full property address (with city/state/zip) from Tax website
-            if tax_data.property_address and len(tax_data.property_address) > len(rec.property_address or ""):
+            # Tax site address — only use if CAD didn't provide one (CAD is more current)
+            if tax_data.property_address and not rec.property_address:
                 rec.property_address = tax_data.property_address
-            # Appraised value from Tax website (gross value) only if CAD didn't provide one
+            # Appraised value from Tax website only if CAD didn't provide one
             if tax_data.appraised_value and not rec.appraised_value:
                 rec.appraised_value = tax_data.appraised_value
         except Exception as exc:

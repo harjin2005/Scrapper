@@ -94,7 +94,8 @@ class MCADLookup:
         street = await self._get_cell_text(page, "streetPrimary")
         city = await self._get_cell_text(page, "city")
         prop_type_code = await self._get_cell_text(page, "propType")
-        address = " ".join(x for x in [street, city] if x).strip() or None
+        # streetPrimary + city from the search grid is the physical (situs) address
+        situs_from_grid = " ".join(x for x in [street, city] if x).strip() or None
 
         # Validate that the grid result is actually the property we're looking for.
         # MCAD sometimes returns a different property for accounts not registered there.
@@ -116,7 +117,7 @@ class MCADLookup:
         prop_type = _TYPE_MAP.get((prop_type_code or "").upper(), prop_type_code)
 
         cad = CADData(
-            mailing_address=address,
+            situs_address=situs_from_grid,
             property_type=prop_type,
             property_type_code=prop_type_code,
         )
@@ -129,6 +130,9 @@ class MCADLookup:
             cad.appraised_value = detail.get("appraised_value")
             cad.lot_size = detail.get("lot_size")
             cad.legal_description = detail.get("legal_description")
+            # Situs address from detail page takes priority over grid address
+            if detail.get("situs_address"):
+                cad.situs_address = detail["situs_address"]
             if detail.get("mailing_address"):
                 cad.mailing_address = detail["mailing_address"]
             if detail.get("owner_name"):
@@ -171,10 +175,17 @@ class MCADLookup:
             # mcad-tx.org renders: "Label:\n\nValue\n\n" (label + blank line + value)
             # Values are plain numbers — NO dollar sign (e.g. "437,200" not "$437,200")
 
-            # Appraised value — "Appraised\n\n437,200"
-            m = re.search(r"\bAppraised\s*\n+\s*([\d,]+)", body, re.IGNORECASE)
-            if m:
-                result["appraised_value"] = m.group(1).replace(",", "").strip()
+            # Appraised value — prefer "Net Appraised" (current year total),
+            # fall back to generic "Appraised" label.
+            # MCAD renders: "Net Appraised\n\n70,656" (no dollar sign)
+            for _appr_pat in [
+                r"Net\s+Appraised[:\s]*\n+\s*([\d,]+)",
+                r"\bAppraised[:\s]*\n+\s*([\d,]+)",
+            ]:
+                m = re.search(_appr_pat, body, re.IGNORECASE)
+                if m:
+                    result["appraised_value"] = m.group(1).replace(",", "").strip()
+                    break
 
             # State code — "State Code:\n\nA1"
             m = re.search(r"State Code:\s*\n+\s*([A-Z][A-Z0-9]{0,4})\b", body)
@@ -192,6 +203,17 @@ class MCADLookup:
             m = re.search(r"Legal Description:\s*\n+\s*([^\n]{5,150})", body)
             if m:
                 result["legal_description"] = m.group(1).strip()
+
+            # Situs (physical property) address — "Situs:\n\n2170 BROWN RD PORTER TX 77365"
+            for _situs_pat in [
+                r"Situs[:\s]*\n+\s*([^\n]{10,120})",
+                r"Property\s+Address[:\s]*\n+\s*([^\n]{10,120})",
+                r"Site\s+Address[:\s]*\n+\s*([^\n]{10,120})",
+            ]:
+                m = re.search(_situs_pat, body, re.IGNORECASE)
+                if m:
+                    result["situs_address"] = m.group(1).strip()
+                    break
 
             # Mailing address — "Mailing Address:\n\n406 HEATHER LN CONROE TX USA 77385"
             m = re.search(r"Mailing Address:\s*\n+\s*([^\n]{10,120})", body)

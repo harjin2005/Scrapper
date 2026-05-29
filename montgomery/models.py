@@ -94,6 +94,7 @@ class CADData(BaseModel):
     property_type_code: Optional[str] = None
     appraised_value: Optional[str] = None
     lot_size: Optional[str] = None
+    situs_address: Optional[str] = None   # physical property address from CAD grid
     mailing_address: Optional[str] = None
     owner_contact: Optional[str] = None
     legal_description: Optional[str] = None

@@ -326,14 +326,23 @@ class TaxLookup:
             if not body:
                 return None
 
-            # paymentinfo.jsp innerText: "2022-01-21\n\t\n$162.79\xa0\n\t\n2021\n..."
-            # Page header is "Tuesday, May 27, 2026" — NOT YYYY-MM-DD — so safe to grab first match
-            dates = re.findall(
+            all_dates: list[str] = []
+
+            # YYYY-MM-DD format: "2023-12-27"
+            all_dates.extend(re.findall(
                 r'\b((?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b',
                 body
-            )
-            if dates:
-                return dates[0]
+            ))
+
+            # MM/DD/YYYY format: "12/27/2023" — convert to YYYY-MM-DD for comparison
+            for m in re.finditer(
+                r'\b(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])/((19|20)\d{2})\b',
+                body
+            ):
+                all_dates.append(f"{m.group(3)}-{m.group(1)}-{m.group(2)}")
+
+            if all_dates:
+                return max(all_dates)  # most recent date
         except Exception as exc:
             log.warning("tax_payment_extract_failed", error=str(exc))
         return None
