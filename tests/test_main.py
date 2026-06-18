@@ -17,7 +17,7 @@ async def test_run_pipeline_calls_all_steps(tmp_path):
         downloads_dir=str(tmp_path / "downloads"),
         logs_dir=str(tmp_path / "logs"),
     )
-    from scraper.models import ForeclosureRecord, CADData, TaxData
+    from scraper.models import ForeclosureRecord, CADData, TaxData, ListingEntry
     sample_record = ForeclosureRecord(
         instrument_no="2026012345",
         address="123 Oak St",
@@ -31,22 +31,44 @@ async def test_run_pipeline_calls_all_steps(tmp_path):
         patch("main.PDFExtractor") as MockExtractor,
         patch("main.CADLookup") as MockCAD,
         patch("main.TaxLookup") as MockTax,
+        patch("main.MlsLookup") as MockMls,
         patch("main.GoogleDriveUploader") as MockDrive,
         patch("main.GoogleSheetsWriter") as MockSheets,
         patch("main.Validator") as MockValidator,
     ):
         MockClerk.return_value.run = AsyncMock(
-            return_value=[("2026012345", str(tmp_path / "2026012345.pdf"))]
+            return_value=[ListingEntry(
+                instrument_no="2026012345",
+                local_path=str(tmp_path / "2026012345.pdf"),
+                grantor_listing="JOHN DOE",
+                sale_date_listing="06/03/2026",
+                legal_desc_listing="LOT 5, BLOCK 12, SUNSET HILLS",
+            )]
         )
         MockExtractor.return_value.extract.return_value = sample_record
         MockCAD.return_value.lookup = AsyncMock(
-            return_value=CADData(account_number="R123", appraised_value="400000", property_status="Active")
+            return_value=CADData(
+                uid="1070028210000",
+                uid_raw="01070028210000",
+                owner_name="JOHN DOE",
+                appraised_value="400000",
+                property_status="Yes",
+                property_street="123 OAK ST",
+                property_state="TX",
+                property_zip="78701",
+            )
         )
         MockTax.return_value.lookup = AsyncMock(
-            return_value=TaxData(taxes_due="0", years_delinquent=0)
+            return_value=TaxData(
+                taxes_due="0",
+                years_delinquent=0,
+                last_payment_date="12/31/2025",
+            )
         )
+        MockMls.return_value.check = AsyncMock(return_value="No")
         MockDrive.return_value.upload.return_value = "https://drive.google.com/file/abc"
         MockSheets.return_value.append_record.return_value = True
+        MockSheets.return_value.get_existing_uids.return_value = set()
         mock_report = MagicMock()
         mock_report.overall_status = "PASS"
         mock_report.model_dump.return_value = {"overall_status": "PASS"}
@@ -57,3 +79,4 @@ async def test_run_pipeline_calls_all_steps(tmp_path):
 
     assert report is not None
     assert report.overall_status == "PASS"
+    MockMls.return_value.check.assert_awaited_once()
