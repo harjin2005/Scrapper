@@ -1,6 +1,6 @@
 from __future__ import annotations
-import asyncio
 import re
+import json as _json
 from typing import Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 from playwright.async_api import async_playwright, Page
@@ -16,12 +16,36 @@ _API_SEARCH = "searchfulltext"
 _API_DEEDS = "/deeds"
 
 
+_UNIT_RE = re.compile(
+    r"\b(APT|UNIT|STE|SUITE|#|BLDG|RM|ROOM|FL|FLOOR)\b.*$", re.IGNORECASE
+)
+
+
+def _clean_address_for_search(address: str) -> str:
+    """Strip city/state/zip and unit numbers so CAD search matches.
+
+    '360 Nueces St 3301, Austin TX 78701' -> '360 Nueces St'
+    '4200 S Congress Ave APT 100, Austin TX' -> '4200 S Congress Ave'
+    '1101 W 23rd St, Austin TX'             -> '1101 W 23rd St'
+    """
+    # Remove everything after first comma (city/state/zip)
+    street = address.split(",")[0].strip()
+    # Remove unit/apt/suite designator and everything after it
+    street = _UNIT_RE.sub("", street).strip()
+    # Remove any remaining trailing all-digit tokens (bare unit numbers like "3301")
+    tokens = street.split()
+    while tokens and tokens[-1].isdigit():
+        tokens.pop()
+    return " ".join(tokens)
+
+
 class CADLookup:
     def __init__(self, config: Config) -> None:
         self.config = config
 
     async def lookup(self, address: str, grantor: Optional[str]) -> CADData:
-        query = address.strip() if address and address.strip() else ""
+        raw_query = address.strip() if address and address.strip() else ""
+        query = _clean_address_for_search(raw_query) if raw_query else ""
         if not query and not grantor:
             return CADData()
         try:
@@ -44,33 +68,36 @@ class CADLookup:
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def _search(self, page: Page, query: str) -> CADData:
-        captured: dict = {}
-
-        async def _on_response(response):
-            if _API_SEARCH in response.url:
-                try:
-                    if "json" in response.headers.get("content-type", ""):
-                        captured["data"] = await response.json()
-                except Exception:
-                    pass
-
-        page.on("response", _on_response)
-
         await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
         try:
             await page.wait_for_selector("#searchInput", timeout=20_000)
         except Exception:
             log.warning("cad_search_input_not_found")
-            page.remove_listener("response", _on_response)
             return CADData()
 
         await page.fill("#searchInput", query)
-        await page.keyboard.press("Enter")
-        await asyncio.sleep(4)
 
-        page.remove_listener("response", _on_response)
+        try:
+            async with page.expect_response(
+                lambda r: _API_SEARCH in r.url, timeout=15_000
+            ) as response_info:
+                await page.keyboard.press("Enter")
+            response = await response_info.value
+        except Exception as exc:
+            log.warning("cad_response_timeout", query=query, error=str(exc))
+            return CADData()
 
-        raw = captured.get("data", {})
+        if response.status == 204:
+            log.info("cad_no_results", query=query)
+            return CADData()
+
+        try:
+            body = await response.body()
+            raw = _json.loads(body)
+        except Exception as exc:
+            log.warning("cad_response_parse_failed", query=query, error=str(exc))
+            return CADData()
+
         results = raw.get("results", [])
         if not results:
             log.info("cad_no_results", query=query)
@@ -80,27 +107,20 @@ class CADLookup:
         return _parse_cad_result(rec)
 
     async def _get_deed_date(self, page: Page, pid: str) -> Optional[str]:
-        captured: dict = {}
-
-        async def _on_response(response):
-            if _API_DEEDS in response.url and str(pid) in response.url:
-                try:
-                    if "json" in response.headers.get("content-type", ""):
-                        captured["data"] = await response.json()
-                except Exception:
-                    pass
-
-        page.on("response", _on_response)
         detail_url = _DETAIL_URL.format(pid=pid)
         try:
-            await page.goto(detail_url, wait_until="domcontentloaded")
-            await asyncio.sleep(4)
+            async with page.expect_response(
+                lambda r: _API_DEEDS in r.url and str(pid) in r.url, timeout=15_000
+            ) as response_info:
+                await page.goto(detail_url, wait_until="domcontentloaded")
+            response = await response_info.value
+            body = await response.body()
+            data = _json.loads(body)
         except Exception as exc:
-            log.warning("cad_detail_nav_failed", pid=pid, error=str(exc))
-        finally:
-            page.remove_listener("response", _on_response)
+            log.warning("cad_deed_failed", pid=pid, error=str(exc))
+            return None
 
-        deeds = captured.get("data", {}).get("results", [])
+        deeds = data.get("results", [])
         if deeds and isinstance(deeds, list):
             deed_dt = deeds[0].get("deedDt", "")
             if deed_dt:
@@ -141,7 +161,6 @@ def _parse_cad_result(rec: dict) -> CADData:
 
 
 def _parse_city_from_situs(situs: str) -> Optional[str]:
-    """Parse city from fullSitus like '360 NUECES ST, AUSTIN, TX, 78701'."""
     parts = [p.strip() for p in situs.split(",")]
     if len(parts) >= 3:
         candidate = parts[1]
