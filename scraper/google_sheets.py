@@ -10,15 +10,27 @@ log = get_logger("google_sheets")
 
 SHEET_RANGE = "Sheet1"
 
+# Column X (index 23) = UID. Last column AP (index 41) = Listed on MLS.
+_UID_COL   = "X"
+_LAST_COL  = "AP"
+
 
 class GoogleSheetsWriter:
     HEADERS = [
+        # Existing columns A-W (23 cols, indexes 0-22)
         "Index #", "Instrument No.", "Address", "County", "Sale Type",
         "Sale Date", "Document Type", "Grantor(s)", "Grantee(s)",
         "Legal Description", "Related Document No.", "Related Doc Type",
         "Substitute Trustee", "Returnee/Attorney", "Notary",
         "Date Received", "PDF Link", "Property Status", "Account Number",
         "Created At", "Updated At", "Taxes Due", "Appraised Value",
+        # New columns X-AP (19 cols, indexes 23-41)
+        "UID", "Owner Name (CAD)", "Owner Secondary",
+        "Property Street", "Property City", "Property State", "Property Zip",
+        "Mailing Street", "Mailing City", "Mailing State", "Mailing Zip",
+        "Property Type Code", "Acreage", "Legal Description (CAD)",
+        "Date Bought By Owner", "Years Delinquent",
+        "Last Payment Date", "Initial Delinquency Year", "Listed on MLS",
     ]
 
     def __init__(self, config: Config) -> None:
@@ -30,7 +42,10 @@ class GoogleSheetsWriter:
         result = (
             self.service.spreadsheets()
             .values()
-            .get(spreadsheetId=self.config.google_sheets_id, range=f"{SHEET_RANGE}!A1:W1")
+            .get(
+                spreadsheetId=self.config.google_sheets_id,
+                range=f"{SHEET_RANGE}!A1:{_LAST_COL}1",
+            )
             .execute()
         )
         rows = result.get("values", [])
@@ -42,6 +57,20 @@ class GoogleSheetsWriter:
                 body={"values": [self.HEADERS]},
             ).execute()
             log.info("sheet_headers_written")
+
+    def get_existing_uids(self) -> set[str]:
+        """Return set of UID values already in the sheet (column X)."""
+        result = (
+            self.service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self.config.google_sheets_id,
+                range=f"{SHEET_RANGE}!{_UID_COL}:{_UID_COL}",
+            )
+            .execute()
+        )
+        rows = result.get("values", [])
+        return {row[0] for row in rows if row and row[0]}
 
     def _get_existing_instrument_nos(self) -> list[str]:
         result = (
@@ -55,9 +84,6 @@ class GoogleSheetsWriter:
         )
         rows = result.get("values", [])
         return [row[0] for row in rows if row]
-
-    def _is_duplicate(self, instrument_no: str, existing: list[str]) -> bool:
-        return instrument_no in existing
 
     def _get_next_index(self) -> int:
         result = (
@@ -74,8 +100,8 @@ class GoogleSheetsWriter:
 
     def append_record(self, record: ForeclosureRecord) -> bool:
         existing = self._get_existing_instrument_nos()
-        if self._is_duplicate(record.instrument_no, existing):
-            log.info("skipping_duplicate", instrument_no=record.instrument_no)
+        if record.instrument_no in existing:
+            log.info("skipping_duplicate_instrument", instrument_no=record.instrument_no)
             return False
 
         record.index_no = self._get_next_index()
@@ -83,7 +109,7 @@ class GoogleSheetsWriter:
 
         self.service.spreadsheets().values().append(
             spreadsheetId=self.config.google_sheets_id,
-            range=f"{SHEET_RANGE}!A:W",
+            range=f"{SHEET_RANGE}!A:{_LAST_COL}",
             valueInputOption="USER_ENTERED",
             insertDataOption="INSERT_ROWS",
             body={"values": [record.to_sheet_row()]},
