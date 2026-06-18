@@ -69,7 +69,7 @@ async def test_lookup_falls_back_to_grantor_when_no_uid(config):
     with patch("scraper.cad_lookup.async_playwright") as mock_pw_class:
         _mock_playwright_context(mock_pw_class)
         with patch.object(lookup, "_search", new=AsyncMock(side_effect=[empty, mock_data])):
-            result = await lookup.lookup("", "EMMICK RYAN")
+            result = await lookup.lookup("360 Nueces ST", "EMMICK RYAN")
 
     assert result.uid == "1070028210000"
 

@@ -33,11 +33,14 @@ def test_foreclosure_record_defaults():
 
 def test_cad_data_model():
     cad = CADData(
-        account_number="R123456",
+        uid="1070028210000",
+        uid_raw="01070028210000",
         appraised_value="450000",
-        property_status="Active",
+        property_status="Yes",
     )
-    assert cad.account_number == "R123456"
+    assert cad.uid == "1070028210000"
+    assert cad.uid_raw == "01070028210000"
+    assert cad.appraised_value == "450000"
 
 
 def test_tax_data_model():

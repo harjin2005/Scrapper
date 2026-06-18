@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import re
 from typing import Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -9,13 +10,19 @@ from scraper.logger import get_logger
 
 log = get_logger("cad_lookup")
 
+_SEARCH_URL = "https://travis.prodigycad.com/property-search"
+_DETAIL_URL = "https://travis.prodigycad.com/property-detail/{pid}/2026"
+_API_SEARCH = "searchfulltext"
+_API_DEEDS = "/deeds"
+
 
 class CADLookup:
     def __init__(self, config: Config) -> None:
         self.config = config
 
     async def lookup(self, address: str, grantor: Optional[str]) -> CADData:
-        if not address:
+        query = address.strip() if address and address.strip() else ""
+        if not query and not grantor:
             return CADData()
         try:
             async with async_playwright() as pw:
@@ -23,9 +30,11 @@ class CADLookup:
                 page = await browser.new_page()
                 page.set_default_timeout(self.config.request_timeout_ms)
                 try:
-                    result = await self._search(page, address)
-                    if not result.account_number and grantor:
+                    result = await self._search(page, query) if query else CADData()
+                    if not result.uid and grantor:
                         result = await self._search(page, grantor)
+                    if result.pid and not result.date_bought_by_owner:
+                        result.date_bought_by_owner = await self._get_deed_date(page, result.pid)
                     return result
                 finally:
                     await browser.close()
@@ -35,109 +44,107 @@ class CADLookup:
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def _search(self, page: Page, query: str) -> CADData:
-        # Navigate with domcontentloaded to avoid JS-heavy networkidle timeout
-        await page.goto(self.config.cad_url, wait_until="domcontentloaded")
+        captured: dict = {}
 
-        # Wait for React to render the search input
+        async def _on_response(response):
+            if _API_SEARCH in response.url:
+                try:
+                    if "json" in response.headers.get("content-type", ""):
+                        captured["data"] = await response.json()
+                except Exception:
+                    pass
+
+        page.on("response", _on_response)
+
+        await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
         try:
-            await page.wait_for_selector("#searchInput", timeout=20000)
+            await page.wait_for_selector("#searchInput", timeout=20_000)
         except Exception:
             log.warning("cad_search_input_not_found")
+            page.remove_listener("response", _on_response)
             return CADData()
 
         await page.fill("#searchInput", query)
         await page.keyboard.press("Enter")
+        await asyncio.sleep(4)
 
-        # Wait for AG Grid rows (data rows, not header)
-        try:
-            await page.wait_for_selector(".ag-row:not(.ag-row-loading)", timeout=15000)
-        except Exception:
+        page.remove_listener("response", _on_response)
+
+        raw = captured.get("data", {})
+        results = raw.get("results", [])
+        if not results:
             log.info("cad_no_results", query=query)
             return CADData()
 
-        # Extract account number from first grid row
-        # AG Grid cells have col-id attributes
-        account_number = await self._get_cell_text(page, "pAccountID")
-        if not account_number:
-            # Try reading from the first row's visible text
-            account_number = await self._get_cell_text(page, "pid")
+        rec = results[0] if isinstance(results, list) else results
+        return _parse_cad_result(rec)
 
-        # Get the property pid for detail page navigation
-        pid = await self._get_cell_text(page, "pid")
+    async def _get_deed_date(self, page: Page, pid: str) -> Optional[str]:
+        captured: dict = {}
 
-        appraised_value = None
-        property_status = None
+        async def _on_response(response):
+            if _API_DEEDS in response.url and str(pid) in response.url:
+                try:
+                    if "json" in response.headers.get("content-type", ""):
+                        captured["data"] = await response.json()
+                except Exception:
+                    pass
 
-        if pid:
-            detail_data = await self._get_detail(page, pid)
-            appraised_value = detail_data.get("appraised_value")
-            property_status = detail_data.get("property_status")
-
-        log.info("cad_data_extracted", query=query, account_number=account_number, appraised_value=appraised_value)
-        return CADData(
-            account_number=account_number,
-            appraised_value=appraised_value,
-            property_status=property_status,
-        )
-
-    async def _get_cell_text(self, page: Page, col_id: str) -> Optional[str]:
-        """Extract text from the first AG Grid row's cell with given col-id."""
+        page.on("response", _on_response)
+        detail_url = _DETAIL_URL.format(pid=pid)
         try:
-            cell = page.locator(f'.ag-row:not(.ag-row-loading) [col-id="{col_id}"]').first
-            if await cell.count() > 0:
-                text = (await cell.inner_text()).strip()
-                return text if text else None
-        except Exception:
-            pass
+            await page.goto(detail_url, wait_until="domcontentloaded")
+            await asyncio.sleep(4)
+        except Exception as exc:
+            log.warning("cad_detail_nav_failed", pid=pid, error=str(exc))
+        finally:
+            page.remove_listener("response", _on_response)
+
+        deeds = captured.get("data", {}).get("results", [])
+        if deeds and isinstance(deeds, list):
+            deed_dt = deeds[0].get("deedDt", "")
+            if deed_dt:
+                return deed_dt[:10]  # "2021-06-04 00:00:00" -> "2021-06-04"
         return None
 
-    async def _get_detail(self, page: Page, pid: str) -> dict:
-        """Navigate to property detail page and extract appraised value and status."""
-        import asyncio
-        result: dict = {}
-        try:
-            # Try direct detail URL first (ProdigyCAD pattern)
-            detail_url = self.config.cad_url.removesuffix("/property-search") + f"/property-detail/{pid}"
-            current_url = page.url
-            try:
-                await page.goto(detail_url, wait_until="domcontentloaded")
-                await asyncio.sleep(2)
-            except Exception:
-                # Fallback: click the first grid row
-                await page.goto(current_url, wait_until="domcontentloaded")
-                first_row = page.locator('.ag-row:not(.ag-row-loading)').first
-                if await first_row.count() == 0:
-                    return result
-                await first_row.click()
-                await asyncio.sleep(2)
 
-            # Try to extract from detail page / panel
-            body_text = await page.evaluate("() => document.body.innerText")
+def _parse_cad_result(rec: dict) -> CADData:
+    uid_raw = rec.get("taxOfficeRef") or rec.get("refID2") or ""
+    uid = uid_raw.lstrip("0") if uid_raw else None
 
-            # Market value / appraised value
-            for pattern in [
-                r"Market Value[:\s]+\$([\d,]+)",
-                r"Appraised Value[:\s]+\$([\d,]+)",
-                r"Total Value[:\s]+\$([\d,]+)",
-                r"\$([\d,]+)\s*(?:Market|Appraised)",
-            ]:
-                m = re.search(pattern, body_text, re.IGNORECASE)
-                if m:
-                    result["appraised_value"] = m.group(1).strip()
-                    break
+    appraised = rec.get("appraisedValue")
+    appraised_str = str(int(appraised)) if appraised is not None else None
 
-            # Property status
-            for pattern in [
-                r"(?:Exemption|Status)[:\s]+([A-Z][A-Za-z\s]+?)(?:\n|$)",
-                r"Property Status[:\s]+([^\n]+)",
-            ]:
-                m = re.search(pattern, body_text, re.IGNORECASE)
-                if m:
-                    val = m.group(1).strip()
-                    if val:
-                        result["property_status"] = val
-                        break
-        except Exception as exc:
-            log.warning("cad_detail_failed", error=str(exc))
+    city = rec.get("city") or _parse_city_from_situs(rec.get("fullSitus", ""))
 
-        return result
+    return CADData(
+        uid=uid or None,
+        uid_raw=uid_raw or None,
+        pid=str(rec.get("pid")) if rec.get("pid") else None,
+        owner_name=rec.get("name") or None,
+        owner_secondary=rec.get("nameSecondary") or None,
+        property_street=rec.get("streetPrimary") or None,
+        property_city=city or None,
+        property_state=rec.get("state") or None,
+        property_zip=rec.get("zip") or None,
+        mailing_street=rec.get("addrDeliveryLine") or None,
+        mailing_city=rec.get("addrCity") or None,
+        mailing_state=rec.get("addrState") or None,
+        mailing_zip=rec.get("addrZip") or None,
+        appraised_value=appraised_str,
+        property_type_code=rec.get("propType") or None,
+        acreage=rec.get("legalAcreage") or None,
+        legal_description=rec.get("legalDescription") or None,
+        property_status=rec.get("active") or None,
+        date_bought_by_owner=None,  # filled by _get_deed_date after search
+    )
+
+
+def _parse_city_from_situs(situs: str) -> Optional[str]:
+    """Parse city from fullSitus like '360 NUECES ST, AUSTIN, TX, 78701'."""
+    parts = [p.strip() for p in situs.split(",")]
+    if len(parts) >= 3:
+        candidate = parts[1]
+        if len(candidate) > 3 and not candidate.isdigit():
+            return candidate
+    return None
