@@ -53,7 +53,7 @@ def test_sheet_headers():
     assert "Address" in headers
     assert "Taxes Due" in headers
     assert "Appraised Value" in headers
-    assert len(headers) == 23
+    assert len(headers) == 42
 
 
 def test_append_new_record(config, sample_record):

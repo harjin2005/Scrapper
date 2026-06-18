@@ -72,6 +72,9 @@ class GoogleSheetsWriter:
         rows = result.get("values", [])
         return {row[0] for row in rows if row and row[0]}
 
+    def _is_duplicate(self, instrument_no: str, existing: list[str]) -> bool:
+        return instrument_no in existing
+
     def _get_existing_instrument_nos(self) -> list[str]:
         result = (
             self.service.spreadsheets()
