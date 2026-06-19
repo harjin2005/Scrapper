@@ -12,6 +12,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from playwright.async_api import async_playwright, Page, BrowserContext
 from scraper.config import Config
 from scraper.logger import get_logger
+from scraper.models import ListingEntry
 
 log = get_logger("clerk_scraper")
 
@@ -47,8 +48,10 @@ class ClerkScraper:
 
     def _copy_chrome_profile(self) -> None:
         temp = Path(TEMP_PROFILE)
+        # If profile already exists, keep it — preserves Cloudflare clearance cookies
         if temp.exists():
-            shutil.rmtree(temp, ignore_errors=True)
+            log.info("reusing_existing_chrome_profile")
+            return
         temp.mkdir(parents=True, exist_ok=True)
         src = Path(CHROME_PROFILE) / "Default"
         dst = temp / "Default"
@@ -60,7 +63,7 @@ class ClerkScraper:
                 "blob_storage", "databases",
             ))
 
-    async def run(self, run_date: Optional[date] = None) -> list[tuple[str, str]]:
+    async def run(self, run_date: Optional[date] = None) -> list[ListingEntry]:
         run_date = run_date or date.today()
         from_date, to_date = self._build_date_range(run_date)
         download_dir = self._get_dated_download_path(run_date)
@@ -76,15 +79,21 @@ class ClerkScraper:
             "--no-default-browser-check",
             "--start-minimized",
         ])
-        await asyncio.sleep(3)
+        # Wait for Chrome to start, retry connecting (localhost → 127.0.0.1 avoids IPv6 issue)
+        await asyncio.sleep(5)
 
         results: list[tuple[str, str]] = []
         try:
             async with async_playwright() as pw:
-                try:
-                    browser = await pw.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
-                except Exception as exc:
-                    raise RuntimeError(f"Chrome CDP connect failed: {exc}") from exc
+                browser = None
+                for attempt in range(6):
+                    try:
+                        browser = await pw.chromium.connect_over_cdp(f"http://127.0.0.1:{CDP_PORT}")
+                        break
+                    except Exception:
+                        if attempt == 5:
+                            raise RuntimeError(f"Chrome CDP not ready on 127.0.0.1:{CDP_PORT} after 6 attempts")
+                        await asyncio.sleep(2)
 
                 context = browser.contexts[0] if browser.contexts else await browser.new_context()
                 page = context.pages[0] if context.pages else await context.new_page()
@@ -101,7 +110,7 @@ class ClerkScraper:
         finally:
             if proc:
                 proc.terminate()
-            shutil.rmtree(TEMP_PROFILE, ignore_errors=True)
+            # Keep temp profile so Cloudflare clearance cookie survives between runs
 
         log.info("clerk_search_done", total_pdfs=len(results))
         return results
@@ -129,7 +138,7 @@ class ClerkScraper:
         # Step 1: load home page, pass Cloudflare
         log.info("navigating_to_home")
         await page.goto(HOME_URL, wait_until="domcontentloaded")
-        title = await self._wait_for_title(page, "Just a moment", timeout_ms=120000)
+        title = await self._wait_for_title(page, "Just a moment", timeout_ms=180000)
         log.info("cloudflare_cleared", title=title)
 
         # Step 2: click disclaimer accept link if present
@@ -205,7 +214,7 @@ class ClerkScraper:
             return 1
 
     async def _collect_all_pages(self, page: Page, download_dir: str, context: BrowserContext) -> list[tuple[str, str]]:
-        results: list[tuple[str, str]] = []
+        results: list[ListingEntry] = []
         await asyncio.sleep(2)
         await self._wait_for_load(page)
 
@@ -237,18 +246,58 @@ class ClerkScraper:
 
         return results
 
-    async def _download_pdfs_on_page(self, page: Page, download_dir: str, context: BrowserContext) -> list[tuple[str, str]]:
-        # Extract (instrument_no, global_id) pairs from result links
+    async def _download_pdfs_on_page(self, page: Page, download_dir: str, context: BrowserContext) -> list[ListingEntry]:
+        # Extract instrument #, global_id, and listing-level fields from each result row.
+        # The Name column contains "[R] GRANTOR NAME (+)\n[E] MM/DD/YYYY (+)" —
+        # [R] = registrant/grantor, [E] = sale/auction date from the listing grid.
         link_data: list[dict] = await page.evaluate("""() => {
             const links = document.querySelectorAll('a[href*="global_id"][href*="type=dtl"]');
-            return Array.from(links).map(a => ({
-                text: a.innerText.trim(),
-                href: a.getAttribute('href') || ''
-            }));
+            return Array.from(links).map(a => {
+                const row = a.closest('tr');
+                const cells = row ? Array.from(row.querySelectorAll('td')) : [];
+                const instrIdx = cells.findIndex(td => td.contains(a));
+
+                let dateFiled = '', grantor = '', saleDate = '', legalDesc = '';
+
+                if (instrIdx >= 0) {
+                    // Date Filed: cell immediately after instrument # cell
+                    if (cells[instrIdx + 1]) {
+                        dateFiled = cells[instrIdx + 1].innerText.trim();
+                    }
+                    // Name cell: contains "[R]" marker — search forward from instrument cell
+                    for (let i = instrIdx + 1; i < cells.length; i++) {
+                        const txt = cells[i].innerText || '';
+                        if (txt.includes('[R]')) {
+                            const rM = txt.match(/\\[R\\]\\s*([^\\n(]+)/);
+                            if (rM) grantor = rM[1].trim();
+                            const eM = txt.match(/\\[E\\]\\s*([\\d\\/]+)/);
+                            if (eM) saleDate = eM[1].trim();
+                            break;
+                        }
+                    }
+                    // Legal description: last non-trivial cell before status ("Temp")
+                    for (let i = cells.length - 1; i > instrIdx; i--) {
+                        const txt = cells[i].innerText.trim();
+                        if (txt && txt !== 'Temp' && !txt.includes('[R]') && !txt.includes('[E]')) {
+                            legalDesc = txt;
+                            break;
+                        }
+                    }
+                }
+
+                return {
+                    text: a.innerText.trim(),
+                    href: a.getAttribute('href') || '',
+                    dateFiled,
+                    grantor,
+                    saleDate,
+                    legalDesc
+                };
+            });
         }""")
         log.info("found_result_links", count=len(link_data))
 
-        results: list[tuple[str, str]] = []
+        results: list[ListingEntry] = []
         for item in link_data:
             instrument_no = item["text"]
             href = item["href"]
@@ -258,8 +307,21 @@ class ClerkScraper:
             try:
                 local_path = await self._download_single_pdf(instrument_no, global_id, download_dir, context)
                 if local_path:
-                    results.append((instrument_no, local_path))
-                    log.info("pdf_downloaded", instrument_no=instrument_no, global_id=global_id)
+                    entry = ListingEntry(
+                        instrument_no=instrument_no,
+                        local_path=local_path,
+                        date_filed=item.get("dateFiled") or None,
+                        grantor_listing=item.get("grantor") or None,
+                        sale_date_listing=item.get("saleDate") or None,
+                        legal_desc_listing=item.get("legalDesc") or None,
+                    )
+                    results.append(entry)
+                    log.info(
+                        "pdf_downloaded",
+                        instrument_no=instrument_no,
+                        grantor_listing=entry.grantor_listing,
+                        sale_date_listing=entry.sale_date_listing,
+                    )
             except Exception as exc:
                 log.error("pdf_download_failed", instrument_no=instrument_no, error=str(exc))
 
