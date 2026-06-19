@@ -48,15 +48,17 @@ class GoogleSheetsWriter:
             )
             .execute()
         )
-        rows = result.get("values", [])
-        if not rows:
-            self.service.spreadsheets().values().update(
-                spreadsheetId=self.config.google_sheets_id,
-                range=f"{SHEET_RANGE}!A1",
-                valueInputOption="RAW",
-                body={"values": [self.HEADERS]},
-            ).execute()
-            log.info("sheet_headers_written")
+        existing = result.get("values", [[]])[0] if result.get("values") else []
+        if existing == self.HEADERS:
+            return  # already up to date
+        # Write/overwrite headers (handles both fresh sheet and stale 23-col header)
+        self.service.spreadsheets().values().update(
+            spreadsheetId=self.config.google_sheets_id,
+            range=f"{SHEET_RANGE}!A1",
+            valueInputOption="RAW",
+            body={"values": [self.HEADERS]},
+        ).execute()
+        log.info("sheet_headers_written", col_count=len(self.HEADERS))
 
     def get_existing_uids(self) -> set[str]:
         """Return set of UID values already in the sheet (column X)."""
@@ -113,7 +115,7 @@ class GoogleSheetsWriter:
         self.service.spreadsheets().values().append(
             spreadsheetId=self.config.google_sheets_id,
             range=f"{SHEET_RANGE}!A:{_LAST_COL}",
-            valueInputOption="USER_ENTERED",
+            valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body={"values": [record.to_sheet_row()]},
         ).execute()
