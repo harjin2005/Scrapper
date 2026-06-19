@@ -51,6 +51,7 @@ class TaxLookup:
 
     @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=2, max=8))
     async def _lookup_by_uid(self, page: Page, uid_raw: str) -> TaxData:
+        await asyncio.sleep(0.5)  # rate limit: prevent burst throttling on go2gov
         year = datetime.date.today().year
         detail_url = _DETAIL_URL.format(uid=uid_raw, year=year)
         log.info("tax_uid_lookup", url=detail_url)

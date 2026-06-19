@@ -92,6 +92,8 @@ class ForeclosureRecord(BaseModel):
     initial_delinquency_year: Optional[str] = None
     # --- New: MLS ---
     listed_on_mls: Optional[str] = None          # "Yes" or "No"
+    # --- Internal quality flag (not written to sheet) ---
+    extraction_quality: Optional[str] = None     # "OK" or "LOW"
 
     def to_sheet_row(self) -> list:
         return [
@@ -148,6 +150,7 @@ class RunReport(BaseModel):
     total_results: int
     pdfs_downloaded: int
     records_processed: int
+    validation_failures: int = 0
     required_field_extraction_rate: float
     cad_lookup_success_rate: float
     tax_lookup_success_rate: float

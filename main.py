@@ -2,13 +2,15 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import traceback
 from datetime import date
 from pathlib import Path
 from typing import Optional
 
 from scraper.cad_lookup import CADLookup
+from scraper.checkpoint import CheckpointManager
 from scraper.clerk_scraper import ClerkScraper
-from scraper.config import load_config, Config
+from scraper.config import load_config, validate_config, Config
 from scraper.google_drive import GoogleDriveUploader
 from scraper.google_sheets import GoogleSheetsWriter
 from scraper.logger import get_logger, setup_logging
@@ -77,28 +79,45 @@ async def run_pipeline(config: Config, run_date: Optional[date] = None) -> objec
     drive     = GoogleDriveUploader(config)
     sheets    = GoogleSheetsWriter(config)
     validator = Validator()
+    ckpt      = CheckpointManager("checkpoints", str(run_date))
 
     sheets.ensure_headers()
     existing_uids: set[str] = sheets.get_existing_uids()
 
+    # --- Stage 1: Clerk scrape (resume from checkpoint if available) ---
     listing_entries: list[ListingEntry] = []
     failed_downloads: list[str] = []
-    try:
-        listing_entries = await clerk.run(run_date)
-    except Exception as exc:
-        log.error("clerk_scraper_error", error=str(exc))
+
+    cached = ckpt.load_listings()
+    if cached is not None:
+        log.info("checkpoint_resume_listings", count=len(cached))
+        listing_entries = cached
+    else:
+        try:
+            listing_entries = await clerk.run(run_date)
+            ckpt.save_listings(listing_entries)
+        except Exception as exc:
+            log.error("clerk_scraper_error", error=str(exc),
+                      traceback=traceback.format_exc())
 
     log.info("pdfs_collected", count=len(listing_entries))
 
     records: list[ForeclosureRecord] = []
     cad_successes = 0
     tax_successes = 0
+    validation_failures = 0
     failed_cad: list[str] = []
     failed_tax: list[str] = []
 
     for entry in listing_entries:
         instrument_no = entry.instrument_no
         local_path = entry.local_path
+
+        # Skip records already written to Sheets in a previous run
+        if ckpt.is_done(instrument_no):
+            log.info("checkpoint_skip", instrument_no=instrument_no)
+            continue
+
         try:
             drive_link = drive.upload(local_path, run_date)
             record = extractor.extract(local_path, pdf_link=drive_link)
@@ -106,14 +125,12 @@ async def run_pipeline(config: Config, run_date: Optional[date] = None) -> objec
 
             _cross_reference(record, entry, log)
 
-            # CAD enrichment
+            # CAD enrichment (sequential — Tax uses uid_raw from CAD direct URL)
             try:
                 cad_data = await cad.lookup(record.address, record.grantor)
-                # Backward-compat fields
                 record.account_number = cad_data.uid_raw
                 record.appraised_value = cad_data.appraised_value
                 record.property_status = cad_data.property_status
-                # New CAD fields
                 record.uid = cad_data.uid
                 record.owner_name_cad = cad_data.owner_name
                 record.owner_secondary = cad_data.owner_secondary
@@ -134,28 +151,38 @@ async def run_pipeline(config: Config, run_date: Optional[date] = None) -> objec
                 else:
                     failed_cad.append(record.address)
             except Exception as cad_exc:
-                log.error("cad_step_failed", instrument_no=instrument_no, error=str(cad_exc))
+                log.error("cad_step_failed", instrument_no=instrument_no,
+                          error=str(cad_exc), traceback=traceback.format_exc())
                 failed_cad.append(record.address)
 
-            # Tax enrichment — pass uid_raw so tax uses direct URL
-            try:
-                tax_data = await tax.lookup(record.address, record.account_number)
-                record.taxes_due = tax_data.taxes_due
-                record.years_delinquent = tax_data.years_delinquent
-                record.last_payment_date = tax_data.last_payment_date
-                record.initial_delinquency_year = tax_data.initial_delinquency_year
-                tax_successes += 1
-            except Exception as tax_exc:
-                log.error("tax_step_failed", instrument_no=instrument_no, error=str(tax_exc))
-                failed_tax.append(record.address)
+            # Tax + MLS run concurrently (Tax uses uid_raw from CAD if available)
+            mls_address = record.property_street or record.address
+            tax_task = asyncio.create_task(
+                tax.lookup(record.address, record.account_number)
+            )
+            mls_task = asyncio.create_task(mls.check(mls_address))
 
-            # MLS check
-            try:
-                mls_address = record.property_street or record.address
-                record.listed_on_mls = await mls.check(mls_address)
-            except Exception as mls_exc:
-                log.error("mls_step_failed", instrument_no=instrument_no, error=str(mls_exc))
+            tax_result, mls_result = await asyncio.gather(
+                tax_task, mls_task, return_exceptions=True
+            )
+
+            if isinstance(tax_result, Exception):
+                log.error("tax_step_failed", instrument_no=instrument_no,
+                          error=str(tax_result), traceback=traceback.format_exc())
+                failed_tax.append(record.address)
+            else:
+                record.taxes_due = tax_result.taxes_due
+                record.years_delinquent = tax_result.years_delinquent
+                record.last_payment_date = tax_result.last_payment_date
+                record.initial_delinquency_year = tax_result.initial_delinquency_year
+                tax_successes += 1
+
+            if isinstance(mls_result, Exception):
+                log.error("mls_step_failed", instrument_no=instrument_no,
+                          error=str(mls_result), traceback=traceback.format_exc())
                 record.listed_on_mls = "No"
+            else:
+                record.listed_on_mls = mls_result
 
             # Dedup by UID (cross-run dedup)
             if record.uid and record.uid in existing_uids:
@@ -164,15 +191,22 @@ async def run_pipeline(config: Config, run_date: Optional[date] = None) -> objec
             if record.uid:
                 existing_uids.add(record.uid)
 
+            # Validate before writing to Sheets
+            valid, reason = validator.validate_record(record)
+            if not valid:
+                log.warning("record_validation_failed",
+                            instrument_no=instrument_no, reason=reason)
+                validation_failures += 1
+                continue
+
             sheets.append_record(record)
+            ckpt.mark_done(instrument_no)
+            ckpt.save()
             records.append(record)
 
-            # TODO: AirTable integration (Priority 0 upload)
-            # Criteria TBD with client
-            # airtable_writer.upload(record, priority=0)
-
         except Exception as exc:
-            log.error("record_processing_failed", instrument_no=instrument_no, error=str(exc))
+            log.error("record_processing_failed", instrument_no=instrument_no,
+                      error=str(exc), traceback=traceback.format_exc())
             failed_downloads.append(instrument_no)
 
     runtime = time.monotonic() - start
@@ -191,12 +225,14 @@ async def run_pipeline(config: Config, run_date: Optional[date] = None) -> objec
         failed_cad=failed_cad,
         failed_tax=failed_tax,
         runtime_seconds=runtime,
+        validation_failures=validation_failures,
     )
 
     log.info(
         "pipeline_complete",
         status=report.overall_status,
         records=len(records),
+        validation_failures=validation_failures,
         runtime_seconds=round(runtime, 1),
     )
     _write_log_file(report, config.logs_dir, run_date)
@@ -212,4 +248,5 @@ def _write_log_file(report, logs_dir: str, run_date: date) -> None:
 
 if __name__ == "__main__":
     config = load_config()
+    validate_config(config)
     asyncio.run(run_pipeline(config))

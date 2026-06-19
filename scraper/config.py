@@ -24,6 +24,29 @@ class Config(BaseModel):
 _CONFIG: Config | None = None
 
 
+def validate_config(config: Config) -> None:
+    """Fail fast on startup if critical config is missing or dirs not writable."""
+    errors: list[str] = []
+    if not Path(config.google_credentials_path).exists():
+        errors.append(f"credentials.json not found at {config.google_credentials_path}")
+    if not config.google_sheets_id:
+        errors.append("google_sheets_id not set in config.yaml")
+    if not config.google_drive_folder_id:
+        errors.append("google_drive_folder_id not set in config.yaml")
+    try:
+        dl = Path(config.downloads_dir)
+        dl.mkdir(parents=True, exist_ok=True)
+        probe = dl / ".write_test"
+        probe.touch()
+        probe.unlink()
+    except Exception as e:
+        errors.append(f"downloads_dir not writable: {e}")
+    if errors:
+        for msg in errors:
+            print(f"CONFIG ERROR: {msg}")
+        raise SystemExit(1)
+
+
 def load_config(path: str | None = None) -> Config:
     global _CONFIG
     if _CONFIG is not None:

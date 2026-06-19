@@ -68,6 +68,7 @@ class CADLookup:
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def _search(self, page: Page, query: str) -> CADData:
+        await asyncio.sleep(0.5)  # rate limit: prevent burst throttling on prodigycad
         await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
         try:
             await page.wait_for_selector("#searchInput", timeout=20_000)

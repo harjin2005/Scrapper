@@ -100,6 +100,7 @@ class ClerkScraper:
                 page.set_default_timeout(self.config.request_timeout_ms)
 
                 try:
+                    await self._check_cloudflare_health(page)
                     await self._navigate_and_search(page, from_date, to_date)
                     results = await self._collect_all_pages(page, download_dir, context)
                 except Exception as exc:
@@ -114,6 +115,21 @@ class ClerkScraper:
 
         log.info("clerk_search_done", total_pdfs=len(results))
         return results
+
+    async def _check_cloudflare_health(self, page: Page) -> None:
+        """Early exit if Cloudflare blocks homepage — avoids 3h run before discovery."""
+        for attempt in range(3):
+            await page.goto(HOME_URL, wait_until="domcontentloaded")
+            title = await page.title()
+            if "Just a moment" not in title and "Cloudflare" not in title:
+                log.info("cloudflare_health_ok", title=title)
+                return
+            log.warning("cloudflare_blocking_homepage", attempt=attempt + 1, title=title)
+            await asyncio.sleep(10)
+        raise RuntimeError(
+            "Cloudflare is blocking tccsearch.org after 3 attempts. "
+            "Open Chrome manually, pass the challenge, then re-run."
+        )
 
     async def _wait_for_load(self, page: Page) -> None:
         try:

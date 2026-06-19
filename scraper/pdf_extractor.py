@@ -65,11 +65,18 @@ def _is_valid_name_field(val: str) -> bool:
         return False
     if len(val) > 120:
         return False
-    if val.count(" ") > 12:  # more than 13 words = sentence, not a name
+    if val.count(" ") > 12:
         return False
     if _SENTENCE_STARTERS.match(val):
         return False
     return True
+
+
+_LEGAL_DESC_BOILERPLATE = re.compile(
+    r"\b(located|the foregoing|hereinafter|described above|above described)\b",
+    re.IGNORECASE,
+)
+
 _VALID_STREET = re.compile(
     r"^\d{1,5}\s+\w",   # starts with 1-5 digit street number then word char
 )
@@ -91,7 +98,7 @@ def _is_valid_address(addr: str) -> bool:
 class PDFExtractor:
     def extract(self, pdf_path: str, pdf_link: str) -> ForeclosureRecord:
         filename = Path(pdf_path).stem
-        text = self._read_pdf_text(pdf_path)
+        text, extraction_quality = self._read_pdf_text(pdf_path)
         log.info("pdf_text_extracted", pdf_path=pdf_path, char_count=len(text))
 
         instrument_no = self._extract_instrument_no(text, filename)
@@ -107,10 +114,11 @@ class PDFExtractor:
             related_document_no=self._extract_dot_recording_no(text),
             pdf_link=pdf_link,
         )
-        log.info("record_extracted", instrument_no=instrument_no)
+        record.extraction_quality = extraction_quality
+        log.info("record_extracted", instrument_no=instrument_no, quality=extraction_quality)
         return record
 
-    def _read_pdf_text(self, pdf_path: str) -> str:
+    def _read_pdf_text(self, pdf_path: str) -> tuple[str, str]:
         pages_text: list[str] = []
         with pdfplumber.open(pdf_path) as pdf:
             for page in pdf.pages:
@@ -118,10 +126,20 @@ class PDFExtractor:
                 if t:
                     pages_text.append(t)
         text = "\n".join(pages_text)
+        plumber_chars = len(text.strip())
         if not text.strip():
             log.info("pdf_no_text_fallback_ocr", pdf_path=pdf_path)
             text = _ocr_pdf(pdf_path)
-        return text
+            ocr_chars = len(text.strip())
+            quality = "LOW" if ocr_chars < 100 else "OK"
+            log.info("pdf_extraction_quality", pdf_path=pdf_path,
+                     source="ocr", pdfplumber_chars=plumber_chars,
+                     ocr_chars=ocr_chars, quality=quality)
+            return text, quality
+        quality = "LOW" if plumber_chars < 100 else "OK"
+        log.info("pdf_extraction_quality", pdf_path=pdf_path,
+                 source="pdfplumber", pdfplumber_chars=plumber_chars, quality=quality)
+        return text, quality
 
     def _extract_instrument_no(self, text: str, filename: str) -> str:
         patterns = [
@@ -205,8 +223,7 @@ class PDFExtractor:
             m = re.search(pat, text, re.IGNORECASE | re.MULTILINE)
             if m:
                 val = m.group(1).strip().rstrip(",.")
-                # Skip if the value looks like a boilerplate label (ends with : or known label)
-                if (len(val) > 2
+                if (_is_valid_name_field(val)
                         and not val.endswith(":")
                         and not re.match(r"^(Address|Holder|Servicer|Trustee|Date|Lender|Borrower)\s*:", val, re.IGNORECASE)):
                     return val
@@ -229,15 +246,15 @@ class PDFExtractor:
 
     def _extract_legal_description(self, text: str) -> Optional[str]:
         patterns = [
-            r"[Ll]egal\s+[Dd]escription\s*:?\s*([^\n]+(?:\n[^\n]+){0,2})",
             r"(LOT\s+\d+[,\s]+BLOCK\s+\d+[^\n]+)",
             r"(TRACT\s+\d+[^\n]+TRAVIS\s+COUNTY[^\n]*)",
+            r"[Ll]egal\s+[Dd]escription\s*:?\s*([^\n]+(?:\n[^\n]+){0,2})",
         ]
         for pat in patterns:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
                 val = m.group(1).strip().replace("\n", " ")
-                if len(val) > 5:
+                if len(val) > 5 and not _LEGAL_DESC_BOILERPLATE.search(val):
                     return val
         return None
 
@@ -307,15 +324,17 @@ class PDFExtractor:
 
         # Priority 3b: "on Month D[junk], YYYY" — HOA notices and OCR ordinal artifacts
         # Placed after Tuesday patterns so "recorded on May 15, 2018" doesn't shadow sale date
+        # Year clamped to 2024-2030 to prevent old recording dates shadowing actual sale date
         m = re.search(
             r"\bon\s+([A-Za-z]+)\s+(\d{1,2})[^,A-Za-z\n]{0,6},\s+(\d{4})",
             text, re.IGNORECASE
         )
         if m:
             mn = m.group(1).lower()
-            if mn in MONTHS:
+            year_int = int(m.group(3))
+            if mn in MONTHS and 2024 <= year_int <= 2030:
                 try:
-                    return date(int(m.group(3)), MONTHS[mn], int(m.group(2)))
+                    return date(year_int, MONTHS[mn], int(m.group(2)))
                 except ValueError:
                     pass
 
