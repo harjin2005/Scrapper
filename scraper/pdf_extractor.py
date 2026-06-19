@@ -52,6 +52,24 @@ _ADDR_BOILERPLATE = re.compile(
     re.IGNORECASE,
 )
 _YEAR_PREFIX = re.compile(r"^20\d\d\b")
+
+_SENTENCE_STARTERS = re.compile(
+    r"^(to |of |the |for |and |or |in |by |with |a |an |that |this |which |from |at |on )",
+    re.IGNORECASE,
+)
+
+
+def _is_valid_name_field(val: str) -> bool:
+    """Reject obvious OCR sentence fragments in name/company fields."""
+    if not val or len(val) < 3:
+        return False
+    if len(val) > 120:
+        return False
+    if val.count(" ") > 12:  # more than 13 words = sentence, not a name
+        return False
+    if _SENTENCE_STARTERS.match(val):
+        return False
+    return True
 _VALID_STREET = re.compile(
     r"^\d{1,5}\s+\w",   # starts with 1-5 digit street number then word char
 )
@@ -107,8 +125,8 @@ class PDFExtractor:
 
     def _extract_instrument_no(self, text: str, filename: str) -> str:
         patterns = [
-            # "recorded in Document INSTRUMENT NO. 2024100942"
-            r"INSTRUMENT\s+NO\.?\s*(\d{8,12})",
+            # Primary instrument number — allow optional colon after "No."
+            r"INSTRUMENT\s+NO\.?\s*:?\s*(\d{8,12})",
             r"[Ii]nstrument\s+No\.?\s*:?\s*(\d{8,12})",
             r"[Dd]ocument\s+No\.?\s*:?\s*(\d{8,12})",
             r"[Ii]nst\.?\s+No\.?\s*:?\s*(\d{8,12})",
@@ -199,13 +217,13 @@ class PDFExtractor:
         for pat in [
             r"grantor\(s\)\s+and\s+([^,\n]+),\s*mortgagee",
             r"mortgagee[:\s]+([^\n]+)",
-            r"[Gg]rantee\s*:?\s*([^\n]+)",
-            r"[Bb]eneficiary\s*:?\s*([^\n]+)",
+            r"[Gg]rantee\s*:\s*([^\n]+)",         # colon required (not optional)
+            r"[Bb]eneficiary\s*:\s*([^\n]+)",      # colon required
         ]:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
                 val = m.group(1).strip().rstrip(",.")
-                if len(val) > 2:
+                if _is_valid_name_field(val):
                     return val
         return None
 
@@ -368,27 +386,29 @@ class PDFExtractor:
         patterns = [
             # "appoints in their steed BARRETT DAFFIN FRAPPIER TURNER & ENGEL, LLP"
             r"appoints?\s+in\s+their\s+stee[d]?\s+([^\n]+?)(?:\s+whose|\s+as\s+substitute|\s*\n)",
-            r"[Ss]ubstitute\s+[Tt]rustee\s*[:(]?\s*([^\n]+)",
+            # Colon only — [:(] was matching "Trustee(s)" paren and grabbing sentence garbage
+            r"[Ss]ubstitute\s+[Tt]rustee\s*:\s*([^\n]+)",
             r"[Tt]rustee\s*:\s*([^\n]+)",
         ]
         for pat in patterns:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
                 val = m.group(1).strip().rstrip(",.")
-                if len(val) > 2:
+                if _is_valid_name_field(val):
                     return val
         return None
 
     def _extract_attorney(self, text: str) -> Optional[str]:
+        # Require colon — `:?` (optional) was matching "attorney" mid-sentence
         patterns = [
-            r"[Aa]ttorney\s*:?\s*([^\n]+)",
-            r"[Rr]eturnee\s*:?\s*([^\n]+)",
-            r"[Ll]aw\s+[Ff]irm\s*:?\s*([^\n]+)",
+            r"[Aa]ttorney\s*:\s*([^\n]+)",
+            r"[Rr]eturnee\s*:\s*([^\n]+)",
+            r"[Ll]aw\s+[Ff]irm\s*:\s*([^\n]+)",
         ]
         for pat in patterns:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
                 val = m.group(1).strip().rstrip(",.")
-                if len(val) > 2:
+                if _is_valid_name_field(val):
                     return val
         return None
