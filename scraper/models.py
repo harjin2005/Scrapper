@@ -24,6 +24,8 @@ class CADData(BaseModel):
     legal_description: Optional[str] = None      # legalDescription
     date_bought_by_owner: Optional[str] = None   # deedDt from /deeds first result
     property_status: Optional[str] = None        # active: "Yes"/"No"
+    property_type_full: Optional[str] = None     # Full text description
+    ag_taxable_value: Optional[str] = None       # agTaxableValue
 
 
 class TaxData(BaseModel):
@@ -41,6 +43,7 @@ class ListingEntry(BaseModel):
     grantor_listing: Optional[str] = None
     sale_date_listing: Optional[str] = None
     legal_desc_listing: Optional[str] = None
+    relevant_doc_link: Optional[str] = None
 
 
 class ForeclosureRecord(BaseModel):
@@ -62,6 +65,7 @@ class ForeclosureRecord(BaseModel):
     notary: Optional[str] = None
     date_received: Optional[date] = None
     pdf_link: str
+    relevant_doc_link: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     # --- Tax fields (existing, kept for backward compat) ---
@@ -83,6 +87,8 @@ class ForeclosureRecord(BaseModel):
     mailing_state: Optional[str] = None
     mailing_zip: Optional[str] = None
     property_type_code: Optional[str] = None
+    property_type_full: Optional[str] = None
+    ag_taxable_value: Optional[str] = None
     acreage: Optional[str] = None
     legal_description_cad: Optional[str] = None
     date_bought_by_owner: Optional[str] = None
@@ -141,6 +147,9 @@ class ForeclosureRecord(BaseModel):
             self.last_payment_date or "",
             self.initial_delinquency_year or "",
             self.listed_on_mls or "",
+            self.relevant_doc_link or "",
+            self.property_type_full or "",
+            self.ag_taxable_value or "",
         ]
 
 

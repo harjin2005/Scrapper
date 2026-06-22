@@ -1,0 +1,30 @@
+              <a class="navbutton" id="propertySearch" href="/act_webdev/montgomery/index.jsp" style="display: none;">Property Search</a>
+	Updated act website to look like Dallas County's.  This file is modelled after index_entry_form_2_eReg.inc
+		document.FrmSearchQuery.criteria.focus();
+		document.getElementById("propertySearch").style.display = "none";
+		document.FrmSearchQuery.criteria.value = document.FrmSearchQuery.criteria.value.trim();
+		// Determine search type. Is search a name search or an exact match search.
+		var searchType = document.FrmSearchQuery.searchby;
+		searchType = $("input[type=radio][name=searchButton]");
+		var searchCriteria = document.FrmSearchQuery.criteria.value;
+		var fidoSearch = false;
+		var nameSearch = false;
+		for ( var i=0; i < searchType.length; i++ ) {
+		if ( (searchType[i].value == 1 || searchType[i].value == 2 || searchType[i].value == 3) && searchType[i].checked ) {
+				nameSearch = true;
+			if ( (searchType[i].value == 12 || searchType[i].value == 13) && searchType[i].checked ) {
+				fidoSearch = true;
+		if ( fidoSearch ) {
+			if ( searchCriteria.length == 0 ) {
+				alert("Please specify a Fiduciary Number to search on");
+			if ( searchCriteria != parseInt(searchCriteria) ) {
+				alert ('Fiduciary number searches must be numeric.   \n\nPlease re-enter the Fiduciary number you wish to search for.  ');
+		} else if ( searchCriteria.length < 4 ) {
+			alert( "To avoid possible problems, please use a search criteria that's at least 4 characters long." );
+		$(".searchMessage").hide();
+		var searchMessageId = "#" + $("input[type=radio][name=searchby]:checked").attr("id") + "Message";
+		$(searchMessageId).show();
+		$('input[type=radio][name=searchby]').change(function() { 
+			$(".searchMessage").hide();
+			var searchMessageId = "#" + $("input[type=radio][name=searchby]:checked").attr("id") + "Message";
+			$(searchMessageId).show();

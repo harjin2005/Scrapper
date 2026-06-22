@@ -43,8 +43,8 @@ class GoogleDriveUploader:
         self.service = build("drive", "v3", credentials=creds)
 
     def _build_drive_path(self, run_date: date) -> str:
-        date_str = run_date.strftime("%Y-%m-%d")
-        return f"My Drive/{'/'.join(self.TASK_FOLDER_PATH)}/{date_str}"
+        folder_name = f"Foreclosure_Travis_{run_date.strftime('%d%m%Y')}"
+        return f"My Drive/{folder_name}"
 
     def _make_shareable_link(self, file_id: str) -> str:
         return f"https://drive.google.com/file/d/{file_id}/view?usp=sharing"
@@ -101,7 +101,5 @@ class GoogleDriveUploader:
 
     def _get_dated_folder(self, run_date: date) -> str:
         parent_id = self.config.google_drive_folder_id
-        for folder_name in self.TASK_FOLDER_PATH:
-            parent_id = self._get_or_create_folder(parent_id, folder_name)
-        date_folder = run_date.strftime("%Y-%m-%d")
-        return self._get_or_create_folder(parent_id, date_folder)
+        folder_name = f"Foreclosure_Travis_{run_date.strftime('%d%m%Y')}"
+        return self._get_or_create_folder(parent_id, folder_name)

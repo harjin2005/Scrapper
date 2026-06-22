@@ -1,0 +1,19 @@
+18 /home/ubuntu/run_10.log
+2026-05-26 11:16:28 [info     ] montgomery_run_start           component=montgomery.main run_date=2026-05-26
+2026-05-26 11:16:28 [info     ] manual_file_mode               component=montgomery.main path=montgomery/downloads/Montgomery_Tax_Del_Raw_032726.xlsx
+2026-05-26 11:16:28 [info     ] loading_excel                  component=excel_processor path=montgomery/downloads/Montgomery_Tax_Del_Raw_032726.xlsx
+2026-05-26 11:19:10 [info     ] excel_raw_rows                 columns=59 component=excel_processor count=563766
+2026-05-26 11:20:06 [info     ] excel_loaded                   component=excel_processor total_raw_rows=563766 unique_properties=41479
+2026-05-26 11:20:07 [info     ] records_parsed                 component=montgomery.main count=41479
+2026-05-26 11:20:07 [info     ] processing_record              account=000000130387 component=montgomery.main progress=1/41479
+2026-05-26 11:20:16 [info     ] mcad_owner_mismatch_skipping   account=130387 component=mcad_lookup expected='ESPARZA SANDRA' found='DEMUTH, NICHOLAS P & JESSICA'
+2026-05-26 11:20:17 [info     ] tax_search                     account=000000130387 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 11:20:39 [info     ] tax_post_search_url            account=000000130387 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 11:20:39 [info     ] tax_no_results                 account=000000130387 component=tax_lookup_montgomery
+2026-05-26 11:20:40 [error    ] sheets_upsert_error            account=000000130387 component=montgomery.main error="('invalid_grant: Token has been expired or revoked.', {'error': 'invalid_grant', 'error_description': 'Token has been expired or revoked.'})"
+2026-05-26 11:21:00 [info     ] processing_record              account=000000130710 component=montgomery.main progress=2/41479
+2026-05-26 11:21:23 [info     ] mcad_no_results                account=130710 component=mcad_lookup
+2026-05-26 11:21:24 [info     ] tax_search                     account=000000130710 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 11:21:51 [info     ] tax_post_search_url            account=000000130710 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 11:21:51 [info     ] tax_no_results                 account=000000130710 component=tax_lookup_montgomery
+2026-05-26 11:21:51 [error    ] sheets_upsert_error            account=000000130710 component=montgomery.main error="('invalid_grant: Token has been expired or revoked.', {'error': 'invalid_grant', 'error_description': 'Token has been expired or revoked.'})"

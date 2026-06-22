@@ -1,0 +1,27 @@
+	Updated act website to look like Dallas County's.  This file is modelled after index_entry_form_2_eReg.inc
+		document.FrmSearchQuery.criteria.focus();
+		document.FrmSearchQuery.criteria.value = document.FrmSearchQuery.criteria.value.trim();
+		var searchType = document.FrmSearchQuery.searchby;
+		searchType = $("input[type=radio][name=searchButton]");
+		var searchCriteria = document.FrmSearchQuery.criteria.value;
+			if ( searchCriteria.length == 0 ) {
+			if ( searchCriteria != parseInt(searchCriteria) ) {
+		} else if ( searchCriteria.length < 4 ) {
+			alert( "To avoid possible problems, please use a search criteria that's at least 4 characters long." );
+		var searchMessageId = "#" + $("input[type=radio][name=searchby]:checked").attr("id") + "Message";
+		$('input[type=radio][name=searchby]').change(function() { 
+			$("#criteria").val("");
+			var searchMessageId = "#" + $("input[type=radio][name=searchby]:checked").attr("id") + "Message";
+<style> .search_criteria h3 { padding: 0px; } </style>
+		<form method="post" name="FrmSearchQuery" onsubmit="return checkEntry();" action="showlist.jsp">
+				<input type="radio" id="sc3" class="searchButton" name="searchby" value="3" checked="">
+				<input type="radio" id="sc8" class="searchButton" name="searchby" value="6">
+				<input type="radio" id="sc4" class="searchButton" name="searchby" value="4">
+				<input type="radio" id="sc5" class="searchButton" name="searchby" value="5">
+				<input type="radio" id="sc12" class="searchButton" name="searchby" value="12">
+			<table width="700" align="center" class="search_criteria">
+						<h3 align="center"> <input type="text" id="criteria" name="criteria" size="40" maxlength="40" value=""> </h3>
+						<h3 align="center"> <input type="submit" value="Search" name="submit"> </h3>
+		</form>
+   <p class="DarkTan">The Montgomery County Tax Office makes no representations as to the accuracy or reliability of any information accessed from its computer data base.  The Tax Office, its officers, agents, employees and representatives shall not be liable for the information posted on the Tax Office Website in connection with any actions losses, damages, claims or liability in any way related to use of, distribution of or reliance upon such information.</p>
+            This webpage is designed for individual taxpayers to research and pay their property taxes.  ACT depends upon its own and third party computer systems to provide timely property tax information. As a condition of your use of this webpage and/or by submitting a query on this webpage, you agree and warrant to ACT that you will not use this webpage for any purpose that is unlawful or prohibited by these terms.  You may not use this  webpage in any manner which could damage, disable, overburden, or impair this webpage or interfere with any other party's use and enjoyment of this webpage.  Occasionally, these computer systems are subjected to exceptional volumes of incoming data, service requests, processes, and electronic mail messages that result in significant degradation of system processing and response time. Regardless of the reason, in those instances when there is system performance degradation, ACT reserves the right, in its sole discretion, to filter or block electronic messages, data and/or processes originating from or traveling to the identified sources of the high volume, automated, electronic  traffic.  ACT further reserves the right to permanently filter or block repeated sources of high volume, automated, electronic traffic.    The unauthorized use of this webpage may give rise to a claim for damages and/or injunctive relief. 

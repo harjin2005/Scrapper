@@ -9,24 +9,44 @@ from scraper.logger import get_logger
 
 log = get_logger("mcad_lookup")
 
-# mcad-tx.org uses a React/AG-Grid interface similar to travis.prodigycad.com
 _BASE = "https://mcad-tx.org"
 _SEARCH_URL = _BASE + "/property-search"
 
-# Property detail URL pattern: /property-detail/{pid}
-_DETAIL_PATH = "/property-detail/"
+_TYPE_MAP = {
+    "R": "Residential", "C": "Commercial", "A": "Agricultural",
+    "I": "Industrial", "M": "Manufactured Home", "U": "Utility",
+    "X": "Exempt", "B": "Business Personal",
+}
 
 
 def _owner_matches(expected: str, found: str) -> bool:
-    """
-    Return True if at least one significant word (>2 chars) from the expected owner
-    appears in the found owner name. Handles name order differences and partial matches.
-    """
     if not expected or not found:
-        return True  # can't validate → assume OK
+        return True
     expected_words = {w for w in expected.upper().split() if len(w) > 2}
     found_words = {w for w in found.upper().split() if len(w) > 2}
     return bool(expected_words & found_words)
+
+
+def _mailing_from_api(rec: dict) -> Optional[str]:
+    parts = [
+        rec.get("addrDeliveryLine", ""),
+        rec.get("addrCity", ""),
+        rec.get("addrState", ""),
+        rec.get("addrZip", ""),
+    ]
+    return ", ".join(x for x in parts if x) or None
+
+
+def _lot_size_from_api(rec: dict) -> Optional[str]:
+    for field in ("legalAcreage", "effectiveSizeAcres"):
+        raw = rec.get(field)
+        try:
+            val = float(raw or 0)
+            if val > 0:
+                return f"{val:.4f} acres"
+        except (TypeError, ValueError):
+            pass
+    return None
 
 
 class MCADLookup:
@@ -34,11 +54,6 @@ class MCADLookup:
         self.config = config
 
     async def lookup(self, account_number: str, expected_owner: str = "") -> CADData:
-        """Primary search: by account number. Returns CADData.
-        expected_owner: owner name from Excel — used to validate the MCAD result
-        is actually the right property (MCAD may return a different property for
-        accounts not registered there).
-        """
         if not account_number:
             return CADData()
         for attempt in range(self.config.retry_attempts):
@@ -60,10 +75,27 @@ class MCADLookup:
         return CADData()
 
     async def _search(self, page: Page, account_number: str, expected_owner: str = "") -> CADData:
+        # Intercept the TrueProdigy search API response — the search page fires a POST
+        # to /public/property/search that returns the current-year record as JSON.
+        # This is more reliable than scraping the detail page (whose values section
+        # never renders in headless mode due to a lazy React API call).
+        api_record: dict = {}
+
+        async def _on_response(response):
+            if "trueprodigyapi" in response.url and "property/search" in response.url:
+                try:
+                    data = await response.json()
+                    results = data.get("results", [])
+                    if results:
+                        api_record.update(results[0])
+                except Exception:
+                    pass
+
+        page.on("response", _on_response)
+
         await page.goto(_SEARCH_URL, wait_until="domcontentloaded")
         await asyncio.sleep(2)
 
-        # Try to find the search input (AG Grid / React portals vary)
         search_input = None
         for selector in ["#searchInput", "input[placeholder*='search' i]", "input[type='search']", "input[type='text']"]:
             try:
@@ -79,26 +111,21 @@ class MCADLookup:
 
         await page.fill(search_input, account_number)
         await page.keyboard.press("Enter")
-        await asyncio.sleep(3)
 
-        # Wait for AG Grid row
+        # Wait for both grid row AND API response
         try:
             await page.wait_for_selector(".ag-row:not(.ag-row-loading)", timeout=15000)
         except Exception:
             log.info("mcad_no_results", account=account_number)
             return CADData()
 
-        # Extract from grid row using confirmed col-ids from mcad-tx.org
-        pid = await self._get_cell_text(page, "pid")
-        owner = await self._get_cell_text(page, "displayName")
-        street = await self._get_cell_text(page, "streetPrimary")
-        city = await self._get_cell_text(page, "city")
-        prop_type_code = await self._get_cell_text(page, "propType")
-        # streetPrimary + city from the search grid is the physical (situs) address
-        situs_from_grid = " ".join(x for x in [street, city] if x).strip() or None
+        await asyncio.sleep(3)  # ensure API response is captured
 
-        # Validate that the grid result is actually the property we're looking for.
-        # MCAD sometimes returns a different property for accounts not registered there.
+        if not api_record:
+            log.warning("mcad_api_response_not_captured", account=account_number)
+            return CADData()
+
+        owner = api_record.get("displayName", "")
         if owner and expected_owner and not _owner_matches(expected_owner, owner):
             log.info(
                 "mcad_owner_mismatch_skipping",
@@ -108,124 +135,39 @@ class MCADLookup:
             )
             return CADData()
 
-        # Map single-letter code to full description
-        _TYPE_MAP = {
-            "R": "Residential", "C": "Commercial", "A": "Agricultural",
-            "I": "Industrial", "M": "Manufactured Home", "U": "Utility",
-            "X": "Exempt", "B": "Business Personal",
-        }
-        prop_type = _TYPE_MAP.get((prop_type_code or "").upper(), prop_type_code)
+        prop_type_code = api_record.get("propType", "") or ""
+        prop_type = _TYPE_MAP.get(prop_type_code.upper(), prop_type_code) or None
+
+        # appraisedValue from API is the current-year Net Appraised value (no $ sign)
+        raw_value = api_record.get("appraisedValue")
+        appraised_value = str(int(raw_value)) if raw_value else None
+
+        # fullSitus includes street, city, state, zip: "406 HEATHER LN, CONROE, TX, 77385"
+        situs_address = api_record.get("fullSitus") or None
+
+        mailing_address = _mailing_from_api(api_record)
+        lot_size = _lot_size_from_api(api_record)
+        legal_description = api_record.get("legalDescription") or None
+        owner_contact = owner or None
 
         cad = CADData(
-            situs_address=situs_from_grid,
             property_type=prop_type,
-            property_type_code=prop_type_code,
+            property_type_code=prop_type_code or None,
+            appraised_value=appraised_value,
+            situs_address=situs_address,
+            mailing_address=mailing_address,
+            lot_size=lot_size,
+            legal_description=legal_description,
+            owner_contact=owner_contact,
         )
 
-        if pid:
-            detail = await self._get_detail(page, pid)
-            # Keep grid prop_type (already mapped correctly); only take code from detail
-            if detail.get("property_type_code"):
-                cad.property_type_code = detail["property_type_code"]
-            cad.appraised_value = detail.get("appraised_value")
-            cad.lot_size = detail.get("lot_size")
-            cad.legal_description = detail.get("legal_description")
-            # Situs address from detail page takes priority over grid address
-            if detail.get("situs_address"):
-                cad.situs_address = detail["situs_address"]
-            if detail.get("mailing_address"):
-                cad.mailing_address = detail["mailing_address"]
-            if detail.get("owner_name"):
-                cad.owner_contact = detail["owner_name"]
-
-        log.info("mcad_extracted", account=account_number,
-                 has_value=bool(cad.appraised_value),
-                 prop_type=cad.property_type,
-                 prop_type_code=cad.property_type_code)
+        log.info(
+            "mcad_extracted",
+            account=account_number,
+            has_value=bool(cad.appraised_value),
+            appraised=cad.appraised_value,
+            situs=cad.situs_address,
+            prop_type=cad.property_type,
+            prop_type_code=cad.property_type_code,
+        )
         return cad
-
-    async def _get_cell_text(self, page: Page, col_id: str) -> Optional[str]:
-        try:
-            cell = page.locator(f'.ag-row:not(.ag-row-loading) [col-id="{col_id}"]').first
-            if await cell.count() > 0:
-                text = (await cell.inner_text()).strip()
-                return text if text else None
-        except Exception:
-            pass
-        return None
-
-    async def _get_detail(self, page: Page, pid: str) -> dict:
-        result: dict = {}
-        try:
-            detail_url = _BASE + _DETAIL_PATH + pid
-            await page.goto(detail_url, wait_until="domcontentloaded")
-
-            # Wait until React API calls finish — values render as plain numbers (no $)
-            try:
-                await page.wait_for_function(
-                    "() => document.body.innerText.includes('Net Appraised') && "
-                    "!document.body.innerText.includes('Loading owner')",
-                    timeout=20000,
-                )
-            except Exception:
-                await asyncio.sleep(10)  # fallback
-
-            body = await page.evaluate("() => document.body.innerText")
-
-            # mcad-tx.org renders: "Label:\n\nValue\n\n" (label + blank line + value)
-            # Values are plain numbers — NO dollar sign (e.g. "437,200" not "$437,200")
-
-            # Appraised value — prefer "Net Appraised" (current year total),
-            # fall back to generic "Appraised" label.
-            # MCAD renders: "Net Appraised\n\n70,656" (no dollar sign)
-            for _appr_pat in [
-                r"Net\s+Appraised[:\s]*\n+\s*([\d,]+)",
-                r"\bAppraised[:\s]*\n+\s*([\d,]+)",
-            ]:
-                m = re.search(_appr_pat, body, re.IGNORECASE)
-                if m:
-                    result["appraised_value"] = m.group(1).replace(",", "").strip()
-                    break
-
-            # State code — "State Code:\n\nA1"
-            m = re.search(r"State Code:\s*\n+\s*([A-Z][A-Z0-9]{0,4})\b", body)
-            if m:
-                result["property_type_code"] = m.group(1).strip()
-
-            # Lot size — from Land table: "G2  Site Value  0.2410  10,500.00  ..."
-            m = re.search(r"Site Value\s+([\d.]+)", body)
-            if not m:
-                m = re.search(r"([\d.]+)\s+[\d,]+\s+[\d,]+\s+0\s*$", body, re.MULTILINE)
-            if m:
-                result["lot_size"] = f"{m.group(1)} acres"
-
-            # Legal description — "Legal Description:\n\nOAK RIDGE NORTH..."
-            m = re.search(r"Legal Description:\s*\n+\s*([^\n]{5,150})", body)
-            if m:
-                result["legal_description"] = m.group(1).strip()
-
-            # Situs (physical property) address — "Situs:\n\n2170 BROWN RD PORTER TX 77365"
-            for _situs_pat in [
-                r"Situs[:\s]*\n+\s*([^\n]{10,120})",
-                r"Property\s+Address[:\s]*\n+\s*([^\n]{10,120})",
-                r"Site\s+Address[:\s]*\n+\s*([^\n]{10,120})",
-            ]:
-                m = re.search(_situs_pat, body, re.IGNORECASE)
-                if m:
-                    result["situs_address"] = m.group(1).strip()
-                    break
-
-            # Mailing address — "Mailing Address:\n\n406 HEATHER LN CONROE TX USA 77385"
-            m = re.search(r"Mailing Address:\s*\n+\s*([^\n]{10,120})", body)
-            if m:
-                result["mailing_address"] = m.group(1).strip()
-
-            # Owner name from detail page (more current than grid — deed transfers update it)
-            m = re.search(r"\bName:\s*\n+\s*([^\n]{3,80})", body)
-            if m:
-                result["owner_name"] = m.group(1).strip()
-
-        except Exception as exc:
-            log.warning("mcad_detail_failed", pid=pid, error=str(exc))
-
-        return result

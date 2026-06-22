@@ -1,0 +1,4 @@
+STDOUT:
+DIRECT URL page title:  |  |  |  | Error 404--Not Found | From RFC 2068 Hypertext Transfer Protocol -- HTTP/1.1: | 10.4.5 404 Not Found |  | The server has not found anything matching the Request-URI. No indication is given of whether the condition is temporary or permanent. |  | If the server does not wish to make this information available
+URL after goto: https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=130387
+STDERR (first 200):

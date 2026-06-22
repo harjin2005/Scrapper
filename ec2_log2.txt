@@ -1,0 +1,2 @@
+2026-05-26 11:20:06 [info     ] excel_loaded                   component=excel_processor total_raw_rows=563766 unique_properties=41479
+2026-05-26 11:20:07 [info     ] processing_record              account=000000130387 component=montgomery.main progress=1/41479

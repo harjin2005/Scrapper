@@ -1,0 +1,29 @@
+2026-05-26 11:23:59 [info     ] montgomery_run_start           component=montgomery.main run_date=2026-05-26
+2026-05-26 11:23:59 [info     ] manual_file_mode               component=montgomery.main path=montgomery/downloads/Montgomery_Tax_Del_Raw_032726.xlsx
+2026-05-26 11:27:51 [info     ] records_parsed                 component=montgomery.main count=41479
+2026-05-26 11:28:01 [info     ] mcad_owner_mismatch_skipping   account=130387 component=mcad_lookup expected='ESPARZA SANDRA' found='DEMUTH, NICHOLAS P & JESSICA'
+2026-05-26 11:28:03 [info     ] tax_search                     account=000000130387 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 11:28:30 [info     ] tax_post_search_url            account=000000130387 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 11:28:30 [info     ] tax_no_results                 account=000000130387 component=tax_lookup_montgomery
+2026-05-26 11:28:33 [info     ] headers_written                component=sheets_writer sheet='Final  Try '
+2026-05-26 11:28:34 [info     ] row_added                      account=000000130387 component=sheets_writer
+2026-05-26 11:29:16 [info     ] mcad_no_results                account=130710 component=mcad_lookup
+2026-05-26 11:29:17 [info     ] tax_search                     account=000000130710 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 11:29:44 [info     ] tax_post_search_url            account=000000130710 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 11:29:44 [info     ] tax_no_results                 account=000000130710 component=tax_lookup_montgomery
+2026-05-26 11:29:45 [info     ] row_added                      account=000000130710 component=sheets_writer
+2026-05-26 11:30:28 [info     ] mcad_no_results                account=130711 component=mcad_lookup
+2026-05-26 11:30:28 [info     ] tax_search                     account=000000130711 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 11:30:51 [info     ] tax_post_search_url            account=000000130711 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 11:30:51 [info     ] tax_no_results                 account=000000130711 component=tax_lookup_montgomery
+2026-05-26 11:30:51 [info     ] row_added                      account=000000130711 component=sheets_writer
+2026-05-26 11:31:34 [info     ] mcad_no_results                account=130712 component=mcad_lookup
+2026-05-26 11:31:35 [info     ] tax_search                     account=000000130712 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 11:31:57 [info     ] tax_post_search_url            account=000000130712 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 11:31:57 [info     ] tax_no_results                 account=000000130712 component=tax_lookup_montgomery
+2026-05-26 11:31:58 [info     ] row_added                      account=000000130712 component=sheets_writer
+2026-05-26 11:32:40 [info     ] mcad_no_results                account=130713 component=mcad_lookup
+2026-05-26 11:32:41 [info     ] tax_search                     account=000000130713 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 11:33:03 [info     ] tax_post_search_url            account=000000130713 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 11:33:03 [info     ] tax_no_results                 account=000000130713 component=tax_lookup_montgomery
+2026-05-26 11:33:04 [info     ] row_added                      account=000000130713 component=sheets_writer

@@ -1,0 +1,15 @@
+2026-05-26 11:51:19 [info     ] montgomery_run_start           component=montgomery.main run_date=2026-05-26
+2026-05-26 11:51:19 [info     ] manual_file_mode               component=montgomery.main path=montgomery/downloads/Montgomery_Tax_Del_Raw_032726.xlsx
+2026-05-26 11:55:19 [info     ] records_parsed                 component=montgomery.main count=41479
+2026-05-26 11:55:28 [info     ] mcad_owner_mismatch_skipping   account=130387 component=mcad_lookup expected='ESPARZA SANDRA' found='DEMUTH, NICHOLAS P & JESSICA'
+2026-05-26 11:55:29 [info     ] tax_direct_url                 account=000000130387 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=130387'
+2026-05-26 11:55:31 [info     ] tax_search_fallback            account=000000130387 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 11:55:53 [info     ] tax_post_search_url            account=000000130387 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 11:55:53 [info     ] tax_no_results                 account=000000130387 component=tax_lookup_montgomery
+2026-05-26 11:55:55 [info     ] row_updated                    account=000000130387 component=sheets_writer row=2
+2026-05-26 11:56:38 [info     ] mcad_no_results                account=130710 component=mcad_lookup
+2026-05-26 11:56:38 [info     ] tax_direct_url                 account=000000130710 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=130710'
+2026-05-26 11:56:41 [info     ] tax_search_fallback            account=000000130710 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 11:57:03 [info     ] tax_post_search_url            account=000000130710 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 11:57:03 [info     ] tax_no_results                 account=000000130710 component=tax_lookup_montgomery
+2026-05-26 11:57:04 [info     ] row_updated                    account=000000130710 component=sheets_writer row=3

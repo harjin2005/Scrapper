@@ -1,0 +1,34 @@
+2026-05-26 12:38:56 [info     ] montgomery_run_start           component=montgomery.main run_date=2026-05-26
+2026-05-26 12:38:56 [info     ] manual_file_mode               component=montgomery.main path=montgomery/downloads/Montgomery_Tax_Del_Raw_032726.xlsx
+2026-05-26 12:38:56 [info     ] loading_excel                  component=excel_processor path=montgomery/downloads/Montgomery_Tax_Del_Raw_032726.xlsx
+2026-05-26 12:41:55 [info     ] excel_raw_rows                 columns=59 component=excel_processor count=563766
+2026-05-26 12:42:53 [info     ] excel_loaded                   component=excel_processor total_raw_rows=563766 unique_properties=41479
+2026-05-26 12:42:57 [info     ] records_parsed                 component=montgomery.main count=41479
+2026-05-26 12:42:57 [info     ] processing_record              account=000000130387 component=montgomery.main progress=1/41479
+2026-05-26 12:43:08 [info     ] mcad_owner_mismatch_skipping   account=130387 component=mcad_lookup expected='ESPARZA SANDRA' found='DEMUTH, NICHOLAS P & JESSICA'
+2026-05-26 12:43:09 [info     ] tax_search                     account=000000130387 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 12:43:11 [info     ] tax_radio_selected             account=000000130387 component=tax_lookup_montgomery
+2026-05-26 12:43:15 [info     ] tax_post_search_url            account=000000130387 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 12:43:15 [info     ] tax_cad_ref_fallback           account=000000130387 cad_ref=130387 component=tax_lookup_montgomery
+2026-05-26 12:43:20 [info     ] tax_result_links_found         account=000000130387 component=tax_lookup_montgomery count=1
+2026-05-26 12:43:20 [info     ] tax_navigating_detail          component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail2.jsp?can=000000130387&ownerno=0'
+2026-05-26 12:43:23 [info     ] tax_detail_url                 account=000000130387 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail2.jsp?can=000000130387&ownerno=0'
+2026-05-26 12:43:23 [info     ] tax_extracted                  account_url='https://actweb.acttax.com/act_webdev/montgomery/showdetail2.jsp?can=000000130387&ownerno=0' component=tax_lookup_montgomery initial_year=None total_due=1061.59 years_behind=None
+2026-05-26 12:43:25 [info     ] row_updated                    account=000000130387 component=sheets_writer row=2
+2026-05-26 12:43:45 [info     ] processing_record              account=000000130710 component=montgomery.main progress=2/41479
+2026-05-26 12:44:08 [info     ] mcad_no_results                account=130710 component=mcad_lookup
+2026-05-26 12:44:08 [info     ] tax_search                     account=000000130710 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 12:44:12 [info     ] tax_radio_selected             account=000000130710 component=tax_lookup_montgomery
+2026-05-26 12:44:15 [info     ] tax_post_search_url            account=000000130710 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 12:44:15 [info     ] tax_cad_ref_fallback           account=000000130710 cad_ref=130710 component=tax_lookup_montgomery
+2026-05-26 12:44:21 [info     ] tax_result_links_found         account=000000130710 component=tax_lookup_montgomery count=1
+2026-05-26 12:44:21 [info     ] tax_navigating_detail          component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail2.jsp?can=000000130710&ownerno=0'
+2026-05-26 12:44:24 [info     ] tax_detail_url                 account=000000130710 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail2.jsp?can=000000130710&ownerno=0'
+2026-05-26 12:44:24 [info     ] tax_extracted                  account_url='https://actweb.acttax.com/act_webdev/montgomery/showdetail2.jsp?can=000000130710&ownerno=0' component=tax_lookup_montgomery initial_year=None total_due=2395.82 years_behind=None
+2026-05-26 12:44:25 [info     ] row_updated                    account=000000130710 component=sheets_writer row=3
+2026-05-26 12:44:45 [info     ] processing_record              account=000000130711 component=montgomery.main progress=3/41479
+2026-05-26 12:45:08 [info     ] mcad_no_results                account=130711 component=mcad_lookup
+2026-05-26 12:45:08 [info     ] tax_search                     account=000000130711 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 12:45:11 [info     ] tax_radio_selected             account=000000130711 component=tax_lookup_montgomery
+2026-05-26 12:45:14 [info     ] tax_post_search_url            account=000000130711 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/showlist.jsp
+2026-05-26 12:45:14 [info     ] tax_cad_ref_fallback           account=000000130711 cad_ref=130711 component=tax_lookup_montgomery

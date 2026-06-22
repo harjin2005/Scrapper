@@ -1,0 +1,361 @@
+Montgomery Central Appraisal District
+
+MONTGOMERY COUNTY, TEXAS
+
+Skip to main content
+Home
+Online Services
+Reports
+Forms
+News
+Appraisal Resources
+Departments
+Exemptions
+About
+Board of Directors
+ARB
+Property Search
+
+130387 DEMUTH, NICHOLAS P & JESSICA
+
+Property | 130387
+2026
+Maps
+Print
+General Info
+Status: Under Review
+ACCOUNT
+
+Property ID:
+
+130387
+
+Geographic ID:
+
+7640-10-18000
+
+Tax Office ID:
+
+7640-10-18000
+
+Type:
+
+R
+
+Agent:
+
+OWNWELL INC
+(Authorized)
+
+Legal Description:
+
+OAK RIDGE NORTH 10, BLOCK 8, LOT 15
+
+Property Use:
+
+View Appraisal Notice
+OWNER
+
+Name:
+
+DEMUTH, NICHOLAS P & JESSICA
+
+Secondary Name:
+
+Mailing Address:
+
+406 HEATHER LN CONROE TX USA 77385-8955
+
+Owner ID:
+
+705914
+
+% Ownership:
+
+100.000000 %
+
+Exemptions:
+
+HS - Homestead
+
+State Code:
+
+A1
+
+Homestead Audit:
+
+LOCATION
+
+Address:
+
+406 HEATHER LN, CONROE TX 77385
+
+Market Area:
+
+Market Area CD:
+
+14271.0
+
+Map ID:
+
+Zoning:
+
+6
+
+PROTEST INFORMATION
+HB 796
+
+Protest Status:
+
+EXP-NC
+
+Informal Date:
+
+Formal Hearing Date & Time:
+
+Board Attendees:
+
+Appraisal Notice Value:
+
+N/A
+
+Owner's Opinion:
+
+N/A
+
+Board Determination:
+
+Final Market Value:
+
+N/A
+
+Resolution: 0.14
+Map Disclaimer
+Values
+CURRENT VALUES
+
+Land Homesite
+
+58,000
+
+Land Non-Homesite
+
+0
+
+Special Use Land Market
+
+0
+
+Total Land
+
+58,000
+
+Improvement Homesite
+
+379,200
+
+Improvement Non-Homesite
+
+0
+
+Total Improvement
+
+379,200
+
+Market
+
+437,200
+
+Special Use Exclusion (-)
+
+0
+
+Appraised
+
+437,200
+
+Value Limitation Adjustment (-)
+
+0
+
+Net Appraised
+
+437,200
+
+VALUE HISTORY
+Year	Land Market	Improvement	Special Use Exclusion (-)	Appraised	Value Limitation Adj (-)	Net Appraised
+2026	58,000	379,200	0	437,200	0	437,200
+2025	58,000	384,000	0	442,000	0	442,000
+2024	58,000	369,013	0	427,013	0	427,013
+2023	58,000	277,890	0	335,890	0	335,890
+2022	58,000	237,530	0	295,530	0	295,530
+2021	14,700	199,200	0	213,900	0	213,900
+2020	14,700	207,410	0	222,110	0	222,110
+2019	14,700	197,610	0	212,310	0	212,310
+2018	14,700	186,060	0	200,760	0	200,760
+2017	14,700	186,060	0	200,760	0	200,760
+2016	14,700	178,360	0	193,060	0	193,060
+2015	14,700	178,910	0	193,610	2,570	191,040
+2014	14,700	176,410	0	191,110	17,440	173,670
+2025
+2023
+2021
+2019
+2017
+2014
+Taxing Units
+
+Owner:
+
+DEMUTH, NICHOLAS P & JESSICA
+
+% Ownership:
+
+100%
+
+Total Value:
+
+437,200
+
+City Of Oak Ridge​City Of Oak Ridge
+Mont Cnty DD 6​Mont Cnty DD 6
+Emergency Ser​Dist #8​Emergency Ser​Dist #8
+Montgomery Cnty​Montgomery Cnty
+Mont Co Hospital​Mont Co Hospital
+Lone Star College​Lone Star College
+Conroe ISD​Conroe ISD
+Unit	Description	Net Appraised	Taxable Value
+
+COR
+	City Of Oak Ridge	437,200	349,760
+
+DD6
+	Mont Cnty DD 6	437,200	349,760
+
+F08
+	Emergency Ser Dist #8	437,200	393,480
+
+GMO
+	Montgomery Cnty	437,200	349,760
+
+HM1
+	Mont Co Hospital	437,200	349,760
+
+JNH
+	Lone Star College	437,200	402,224
+
+SCO
+	Conroe ISD	437,200	297,200
+View Tax Transparency
+Improvement
+
+Improvement #1:
+
+Residential
+
+State Code:
+
+A1
+
+Improvement Value:
+
+$ 359,200
+
+Description:
+
+Main Area:
+
+3,249 sqft
+
+Gross Building Area:
+
+3,894 sqft
+
+Type	Description	Class CD	Exterior Wall	Number of Units	EFF Year Built	Year Built	SQFT
+MA2.0	Main Area 2nd Flr	6		1	1995	1983	1,967
+MA	Main Area	6		1	1995	1983	1,282
+DFG	Detached Frame Garage	6		1	1995	1983	483
+CPY	Canopy	6		1	1995	1983	126
+OMP	Open Masonry Porch	6		1	1995	1983	36
+Improvement Features
+MA	Plumbing: 1HBPlumbing: 2FBFoundation: 1Roof: 2Flooring: 1Plumbing: 10HVAC: RH1-RC1Interior Finish: 1-2Fireplace: 1M2Exterior Finish: R1HVAC: RH1-RC1Flooring: 2
+
+Improvement #2:
+
+Residential
+
+State Code:
+
+A1
+
+Improvement Value:
+
+$ 20,000
+
+Description:
+
+POOL/JACUZZI - EZ
+
+Main Area:
+
+0 sqft
+
+Gross Building Area:
+
+1 sqft
+
+Type	Description	Class CD	Exterior Wall	Number of Units	EFF Year Built	Year Built	SQFT
+EV	ESTIMATED VALUE			1	1996	0	1
+Land
+Land	Description	Acres	SQFT	Market Value	Special Use Value 
+G2	Site Value	0.2410	10,500.00	58,000	0
+Deed History
+Deed Date	Type	Description	Grantor/Seller	Grantee/Buyer	Book ID	Volume	Page	Instrument
+2023-10-27	WDV	W/d & V/ln	KETTERER, MICHAEL & ISABEL	DEMUTH, NICHOLAS P & JESSICA				2023104461
+2000-08-01	WDV	W/d & V/ln	BRASHER, BRUCE & MARIA	KETTERER, MICHAEL & ISABEL	749.00		0551	
+1993-06-03	WDV	W/d & V/ln	SPAGNOLETTI, ROBERT J	BRASHER, BRUCE & MARIA	883.01		1543	
+1989-04-01	Conv	Conversion	BRYANT, BRUCE A	SPAGNOLETTI, ROBERT J				8919514
+
+Address:
+
+
+109 Gladstell
+Conroe, Texas 77301
+
+
+Mailing:
+
+P.O. Box 2233
+
+Conroe, Texas 77305
+
+MAP
+
+Phone:
+
+936-756-3354
+
+936-441-2186
+
+
+
+
+Emails:
+
+https://www.mcad-tx.org/contact-us
+
+
+
+
+Business Hours:
+
+Monday - Friday
+
+8:00 AM - 5:00 PM
+
+Follow us on:
+
+© Copyright Montgomery Appraisal District
+
+Powered by: <True Prodigy>
+2015

@@ -30,9 +30,9 @@ def _gapi_execute(request):
 
 SHEET_RANGE = "Sheet1"
 
-# Column X (index 23) = UID. Last column AP (index 41) = Listed on MLS.
+# Column X (index 23) = UID. Last column AS (index 44) = AG Taxable Value.
 _UID_COL   = "X"
-_LAST_COL  = "AP"
+_LAST_COL  = "AS"
 
 
 class GoogleSheetsWriter:
@@ -51,6 +51,7 @@ class GoogleSheetsWriter:
         "Property Type Code", "Acreage", "Legal Description (CAD)",
         "Date Bought By Owner", "Years Delinquent",
         "Last Payment Date", "Initial Delinquency Year", "Listed on MLS",
+        "Relevant Doc Link", "Property Type (Full Text)", "AG Taxable Value",
     ]
 
     def __init__(self, config: Config) -> None:
@@ -134,7 +135,7 @@ class GoogleSheetsWriter:
                             "startRowIndex": row_index,
                             "endRowIndex": row_index + 1,
                             "startColumnIndex": 0,
-                            "endColumnIndex": 42,
+                            "endColumnIndex": 45,
                         },
                         "cell": {
                             "userEnteredFormat": {

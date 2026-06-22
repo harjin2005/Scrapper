@@ -330,6 +330,7 @@ class ClerkScraper:
                         grantor_listing=item.get("grantor") or None,
                         sale_date_listing=item.get("saleDate") or None,
                         legal_desc_listing=item.get("legalDesc") or None,
+                        relevant_doc_link=f"https://www.tccsearch.org/RealEstate/DocumentDetail.aspx?global_id={global_id}",
                     )
                     results.append(entry)
                     log.info(

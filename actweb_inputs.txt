@@ -1,0 +1,8 @@
+<form method="post" name="FrmSearchQuery" onsubmit="return checkEntry();" action="showlist.jsp">
+<input type="radio" id="sc3" class="searchButton" name="searchby" value="3" checked="">
+<input type="radio" id="sc8" class="searchButton" name="searchby" value="6">
+<input type="radio" id="sc4" class="searchButton" name="searchby" value="4">
+<input type="radio" id="sc5" class="searchButton" name="searchby" value="5">
+<input type="radio" id="sc12" class="searchButton" name="searchby" value="12">
+<input type="text" id="criteria" name="criteria" size="40" maxlength="40" value="">
+<input type="submit" value="Search" name="submit">

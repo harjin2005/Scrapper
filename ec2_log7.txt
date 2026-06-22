@@ -1,0 +1,50 @@
+2026-05-26 11:55:19 [info     ] processing_record              account=000000130387 component=montgomery.main progress=1/41479
+2026-05-26 11:55:29 [info     ] tax_direct_url                 account=000000130387 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=130387'
+2026-05-26 11:55:53 [info     ] tax_no_results                 account=000000130387 component=tax_lookup_montgomery
+2026-05-26 11:55:55 [info     ] row_updated                    account=000000130387 component=sheets_writer row=2
+2026-05-26 11:56:15 [info     ] processing_record              account=000000130710 component=montgomery.main progress=2/41479
+2026-05-26 11:56:38 [info     ] mcad_no_results                account=130710 component=mcad_lookup
+2026-05-26 11:56:38 [info     ] tax_direct_url                 account=000000130710 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=130710'
+2026-05-26 11:57:03 [info     ] tax_no_results                 account=000000130710 component=tax_lookup_montgomery
+2026-05-26 11:57:04 [info     ] row_updated                    account=000000130710 component=sheets_writer row=3
+2026-05-26 11:57:24 [info     ] processing_record              account=000000130711 component=montgomery.main progress=3/41479
+2026-05-26 11:57:47 [info     ] mcad_no_results                account=130711 component=mcad_lookup
+2026-05-26 11:57:48 [info     ] tax_direct_url                 account=000000130711 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=130711'
+2026-05-26 11:58:12 [info     ] tax_no_results                 account=000000130711 component=tax_lookup_montgomery
+2026-05-26 11:58:13 [info     ] row_updated                    account=000000130711 component=sheets_writer row=4
+2026-05-26 11:58:33 [info     ] processing_record              account=000000130712 component=montgomery.main progress=4/41479
+2026-05-26 11:58:56 [info     ] mcad_no_results                account=130712 component=mcad_lookup
+2026-05-26 11:58:56 [info     ] tax_direct_url                 account=000000130712 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=130712'
+2026-05-26 11:59:26 [info     ] tax_no_results                 account=000000130712 component=tax_lookup_montgomery
+2026-05-26 11:59:26 [info     ] row_updated                    account=000000130712 component=sheets_writer row=5
+2026-05-26 11:59:46 [info     ] processing_record              account=000000130713 component=montgomery.main progress=5/41479
+2026-05-26 12:00:09 [info     ] mcad_no_results                account=130713 component=mcad_lookup
+2026-05-26 12:00:10 [info     ] tax_direct_url                 account=000000130713 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=130713'
+2026-05-26 12:00:34 [info     ] tax_no_results                 account=000000130713 component=tax_lookup_montgomery
+2026-05-26 12:00:35 [info     ] row_updated                    account=000000130713 component=sheets_writer row=6
+2026-05-26 12:00:55 [info     ] processing_record              account=000000134408 component=montgomery.main progress=6/41479
+2026-05-26 12:01:18 [info     ] mcad_no_results                account=134408 component=mcad_lookup
+2026-05-26 12:01:18 [info     ] tax_direct_url                 account=000000134408 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=134408'
+2026-05-26 12:01:43 [info     ] tax_no_results                 account=000000134408 component=tax_lookup_montgomery
+2026-05-26 12:01:44 [info     ] row_updated                    account=000000134408 component=sheets_writer row=7
+2026-05-26 12:02:04 [info     ] processing_record              account=000000138588 component=montgomery.main progress=7/41479
+2026-05-26 12:02:26 [info     ] mcad_no_results                account=138588 component=mcad_lookup
+2026-05-26 12:02:27 [info     ] tax_direct_url                 account=000000138588 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=138588'
+2026-05-26 12:02:56 [info     ] tax_no_results                 account=000000138588 component=tax_lookup_montgomery
+2026-05-26 12:02:57 [info     ] row_updated                    account=000000138588 component=sheets_writer row=8
+2026-05-26 12:03:17 [info     ] processing_record              account=0000010000215 component=montgomery.main progress=8/41479
+2026-05-26 12:03:40 [info     ] mcad_no_results                account=R325237 component=mcad_lookup
+2026-05-26 12:03:41 [info     ] tax_direct_url                 account=0000010000215 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=10000215'
+2026-05-26 12:04:10 [info     ] tax_no_results                 account=0000010000215 component=tax_lookup_montgomery
+2026-05-26 12:04:11 [info     ] row_updated                    account=0000010000215 component=sheets_writer row=9
+2026-05-26 12:04:31 [info     ] processing_record              account=0000010000216 component=montgomery.main progress=9/41479
+2026-05-26 12:04:54 [info     ] mcad_no_results                account=R398877 component=mcad_lookup
+2026-05-26 12:04:55 [info     ] tax_direct_url                 account=0000010000216 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=10000216'
+2026-05-26 12:05:24 [info     ] tax_no_results                 account=0000010000216 component=tax_lookup_montgomery
+2026-05-26 12:05:25 [info     ] row_added                      account=0000010000216 component=sheets_writer
+2026-05-26 12:05:45 [info     ] processing_record              account=0000010000217 component=montgomery.main progress=10/41479
+2026-05-26 12:06:08 [info     ] mcad_no_results                account=R532787 component=mcad_lookup
+2026-05-26 12:06:08 [info     ] tax_direct_url                 account=0000010000217 component=tax_lookup_montgomery url='https://actweb.acttax.com/act_webdev/montgomery/showdetail.jsp?can=10000217'
+2026-05-26 12:06:32 [info     ] tax_no_results                 account=0000010000217 component=tax_lookup_montgomery
+2026-05-26 12:06:33 [info     ] row_added                      account=0000010000217 component=sheets_writer
+2026-05-26 12:06:37 [info     ] montgomery_run_complete        added=2 component=montgomery.main drive_link=https://drive.google.com/file/d/1_yhi4KiDyatWLuqhauWDPN7V2OQLmAhA/view failed=0 report_path=montgomery/logs/run_report_2026-05-26.json runtime_seconds=914.7 status=FAIL updated=8

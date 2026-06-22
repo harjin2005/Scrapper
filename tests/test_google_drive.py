@@ -29,7 +29,7 @@ def config(tmp_path):
 def test_build_drive_path_for_date():
     uploader = GoogleDriveUploader.__new__(GoogleDriveUploader)
     path = uploader._build_drive_path(date(2026, 5, 13))
-    assert path == "My Drive/Scrapping Task/Task 4: Travis County/PDFs/2026-05-13"
+    assert path == "My Drive/Foreclosure_Travis_13052026"
 
 
 def test_get_shareable_link_format():
@@ -52,6 +52,7 @@ def test_upload_file_calls_drive_api(config, tmp_path):
     uploader.config = config
 
     with patch.object(uploader, "_get_or_create_folder", return_value="DATED_FOLDER_ID"):
-        link = uploader.upload(str(pdf_path), date(2026, 5, 13))
+        with patch.object(uploader, "_find_existing_file", return_value=None):
+            link = uploader.upload(str(pdf_path), date(2026, 5, 13))
 
     assert "UPLOADED_FILE_ID" in link

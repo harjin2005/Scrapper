@@ -18,18 +18,23 @@ class Checkpoint:
     def _load(self) -> dict:
         if self._path.exists():
             with open(self._path) as f:
-                data = json.load(f)
-            log.info("checkpoint_loaded", path=str(self._path), processed=len(data.get("done", [])))
-            return data
-        return {"done": [], "excel_file_date": ""}
+                raw = json.load(f)
+            # Migrate list → set for O(1) lookup (old checkpoints stored a list)
+            done = raw.get("done", [])
+            if isinstance(done, list):
+                raw["done"] = set(done)
+            log.info("checkpoint_loaded", path=str(self._path), processed=len(raw["done"]))
+            return raw
+        return {"done": set(), "excel_file_date": ""}
 
     def save(self) -> None:
+        # Serialize set as sorted list for stable JSON
+        serialisable = {**self._data, "done": sorted(self._data["done"])}
         with open(self._path, "w") as f:
-            json.dump(self._data, f)
+            json.dump(serialisable, f)
 
     def mark_done(self, account_number: str) -> None:
-        if account_number not in self._data["done"]:
-            self._data["done"].append(account_number)
+        self._data["done"].add(account_number)
 
     def is_done(self, account_number: str) -> bool:
         return account_number in self._data["done"]
@@ -38,6 +43,6 @@ class Checkpoint:
         return len(self._data["done"])
 
     def reset(self) -> None:
-        self._data = {"done": [], "excel_file_date": ""}
+        self._data = {"done": set(), "excel_file_date": ""}
         self.save()
         log.info("checkpoint_reset", path=str(self._path))

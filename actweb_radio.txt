@@ -1,0 +1,47 @@
+
+		// Determine search type. Is search a name search or an exact match search.
+		var searchType = document.FrmSearchQuery.searchby;
+		searchType = $("input[type=radio][name=searchButton]");
+		var searchCriteria = document.FrmSearchQuery.criteria.value;
+		var fidoSearch = false;
+--
+	$(function() {
+		$(".searchMessage").hide();
+		var searchMessageId = "#" + $("input[type=radio][name=searchby]:checked").attr("id") + "Message";
+		$(searchMessageId).show();
+	
+		$('input[type=radio][name=searchby]').change(function() { 
+			$(".searchMessage").hide();
+			$("#criteria").val("");
+			var searchMessageId = "#" + $("input[type=radio][name=searchby]:checked").attr("id") + "Message";
+			$(searchMessageId).show();
+		});
+--
+
+			<div align="center" class="searchTypes" name="searchTypes">
+				<input type="radio" id="sc3" class="searchButton" name="searchby" value="3" checked="">
+				<label class="searchLabel" for="sc3"> Name Search </label>
+
+				<input type="radio" id="sc8" class="searchButton" name="searchby" value="6">
+				<label class="searchLabel" for="sc8"> Address Search </label>
+
+				<input type="radio" id="sc4" class="searchButton" name="searchby" value="4">
+				<label class="searchLabel" for="sc4"> Account Search </label>
+
+				<input type="radio" id="sc5" class="searchButton" name="searchby" value="5">
+				<label class="searchLabel" for="sc5"> CAD Reference Search </label>
+
+				<input type="radio" id="sc12" class="searchButton" name="searchby" value="12">
+				<label class="searchLabel" for="sc12"> Fiduciary Search </label>
+			</div>
+
+--
+
+						<div class="searchTypes">
+							<h2 id="sc3Message" class="searchMessage" align="center" style="display: block;"> Search by Owner Name (Last Name First) </h2>
+							<h2 id="sc8Message" class="searchMessage" align="center" style="display: none;"> Search by Property Address (Starts With) </h2>
+							<h2 id="sc4Message" class="searchMessage" align="center" style="display: none;"> Search by Account Number </h2>
+							<h2 id="sc5Message" class="searchMessage" align="center" style="display: none;"> Search by CAD Reference Number </h2>
+							<h2 id="sc12Message" class="searchMessage" align="center" style="display: none;"> Search by Fiduciary Number (this may take several minutes) </h2>
+						</div>
+

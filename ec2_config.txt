@@ -13,6 +13,6 @@ checkpoint_dir: "montgomery/checkpoints"
 
 retry_attempts: 2
 request_timeout_ms: 20000
-headless: true
+headless: false
 rate_limit_delay_seconds: 20.0
 checkpoint_every_n: 25

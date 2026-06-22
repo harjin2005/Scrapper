@@ -1,0 +1,10 @@
+2026-05-26 12:27:48 [info     ] processing_record              account=000000130387 component=montgomery.main progress=1/41479
+2026-05-26 12:27:58 [info     ] tax_search                     account=000000130387 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 12:28:11 [info     ] row_updated                    account=000000130387 component=sheets_writer row=2
+2026-05-26 12:28:31 [info     ] processing_record              account=000000130710 component=montgomery.main progress=2/41479
+2026-05-26 12:28:54 [info     ] tax_search                     account=000000130710 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 12:29:06 [info     ] row_updated                    account=000000130710 component=sheets_writer row=3
+2026-05-26 12:29:26 [info     ] processing_record              account=000000130711 component=montgomery.main progress=3/41479
+2026-05-26 12:29:49 [info     ] tax_search                     account=000000130711 component=tax_lookup_montgomery url=https://actweb.acttax.com/act_webdev/montgomery/index.jsp
+2026-05-26 12:30:00 [info     ] row_updated                    account=000000130711 component=sheets_writer row=4
+2026-05-26 12:30:20 [info     ] processing_record              account=000000130712 component=montgomery.main progress=4/41479

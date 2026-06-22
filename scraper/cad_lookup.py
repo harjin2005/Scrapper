@@ -20,6 +20,29 @@ _UNIT_RE = re.compile(
     r"\b(APT|UNIT|STE|SUITE|#|BLDG|RM|ROOM|FL|FLOOR)\b.*$", re.IGNORECASE
 )
 
+SPTC_MAP = {
+    "A1": "SINGLE FAMILY RESIDENCE",
+    "A2": "MOBILE HOME",
+    "A3": "RESIDENCE AUXILIARY",
+    "A4": "CONDOS",
+    "B1": "MULTIFAMILY RESIDENCE",
+    "B2": "DUPLEX",
+    "C1": "VACANT LOT/TRACT",
+    "D1": "QUALIFIED AG LAND",
+    "D2": "NON-QUALIFIED AG LAND",
+    "E": "FARM AND RANCH",
+    "F1": "COMMERCIAL REAL ESTATE",
+    "F2": "INDUSTRIAL REAL ESTATE",
+}
+
+def _get_property_type_full(code: str) -> Optional[str]:
+    if not code:
+        return None
+    for k, v in SPTC_MAP.items():
+        if code.upper().startswith(k):
+            return v
+    return None
+
 
 def _clean_address_for_search(address: str) -> str:
     """Strip city/state/zip and unit numbers so CAD search matches.
@@ -137,6 +160,10 @@ def _parse_cad_result(rec: dict) -> CADData:
     appraised_str = str(int(appraised)) if appraised is not None else None
 
     city = rec.get("city") or _parse_city_from_situs(rec.get("fullSitus", ""))
+    
+    # State Property Tax Code is often in stateCode, stateCd, or propType
+    pt_code = rec.get("stateCode") or rec.get("stateCd") or rec.get("propType")
+    pt_full = _get_property_type_full(pt_code)
 
     return CADData(
         uid=uid or None,
@@ -153,10 +180,12 @@ def _parse_cad_result(rec: dict) -> CADData:
         mailing_state=rec.get("addrState") or None,
         mailing_zip=rec.get("addrZip") or None,
         appraised_value=appraised_str,
-        property_type_code=rec.get("propType") or None,
+        property_type_code=pt_code or None,
         acreage=rec.get("legalAcreage") or None,
         legal_description=rec.get("legalDescription") or None,
         property_status=rec.get("active") or None,
+        property_type_full=pt_full,
+        ag_taxable_value=str(rec.get("agValue")) if rec.get("agValue") is not None else None,
         date_bought_by_owner=None,  # filled by _get_deed_date after search
     )
 
