@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from scraper.cad_lookup import CADLookup
+from scraper.code_lookup import CodeLookup
 from scraper.checkpoint import CheckpointManager
 from scraper.clerk_scraper import ClerkScraper
 from scraper.config import load_config, validate_config, Config
@@ -122,6 +123,7 @@ async def run_pipeline(config: Config, run_date: Optional[date] = None) -> objec
             drive_link = drive.upload(local_path, run_date)
             record = extractor.extract(local_path, pdf_link=drive_link)
             record.instrument_no = instrument_no
+            record.relevant_doc_link = entry.relevant_doc_link
 
             _cross_reference(record, entry, log)
 
@@ -146,6 +148,22 @@ async def run_pipeline(config: Config, run_date: Optional[date] = None) -> objec
                 record.acreage = cad_data.acreage
                 record.legal_description_cad = cad_data.legal_description
                 record.date_bought_by_owner = cad_data.date_bought_by_owner
+                record.date_bought_by_owner = cad_data.date_bought_by_owner
+                
+                # Advanced Lead Qualification Heuristics
+                if record.owner_name_cad and ("ESTATE" in record.owner_name_cad.upper() or "HEIRS" in record.owner_name_cad.upper()):
+                    record.owner_deceased = "Yes (Estate/Heirs)"
+                else:
+                    record.owner_deceased = "No"
+                    
+                if record.property_street and record.mailing_street:
+                    if record.property_street.upper().strip() != record.mailing_street.upper().strip():
+                        record.occupancy_status = "Absentee/Vacant"
+                    else:
+                        record.occupancy_status = "Owner Occupied"
+                else:
+                    record.occupancy_status = "Unknown"
+
                 if cad_data.uid:
                     cad_successes += 1
                 else:
@@ -165,6 +183,15 @@ async def run_pipeline(config: Config, run_date: Optional[date] = None) -> objec
             tax_result, mls_result = await asyncio.gather(
                 tax_task, mls_task, return_exceptions=True
             )
+            
+            # Code Compliance is fast, can run synchronously or using to_thread
+            try:
+                record.property_condition = await asyncio.to_thread(
+                    CodeLookup.check_violations, record.property_street
+                )
+            except Exception as code_exc:
+                log.error("code_step_failed", instrument_no=instrument_no, error=str(code_exc))
+                record.property_condition = "Unknown"
 
             if isinstance(tax_result, Exception):
                 log.error("tax_step_failed", instrument_no=instrument_no,

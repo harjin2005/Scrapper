@@ -2,6 +2,7 @@ from __future__ import annotations
 import re
 import json as _json
 from typing import Optional
+import asyncio
 from tenacity import retry, stop_after_attempt, wait_exponential
 from playwright.async_api import async_playwright, Page
 from scraper.config import Config

@@ -103,53 +103,41 @@ class ForeclosureRecord(BaseModel):
 
     def to_sheet_row(self) -> list:
         return [
-            # Existing columns A-W (23 cols, backward compatible)
-            self.index_no or "",
-            self.instrument_no,
-            self.address,
-            self.county,
-            self.sale_type,
-            str(self.sale_date) if self.sale_date else "",
-            self.document_type,
-            self.grantor,
-            self.grantee or "",
-            self.legal_description or "",
-            self.related_document_no or "",
-            self.related_doc_type or "",
-            self.substitute_trustee or "",
-            self.returnee_attorney or "",
-            self.notary or "",
-            str(self.date_received) if self.date_received else "",
-            self.pdf_link,
-            self.property_status or "",
-            self.account_number or "",
-            self.created_at.isoformat(),
-            self.updated_at.isoformat(),
-            self.taxes_due,
-            self.appraised_value or "",
-            # New columns X-AP (19 cols)
-            self.uid or "",
-            self.owner_name_cad or "",
-            self.owner_secondary or "",
-            self.property_street or "",
-            self.property_city or "",
-            self.property_state or "",
-            self.property_zip or "",
-            self.mailing_street or "",
-            self.mailing_city or "",
-            self.mailing_state or "",
-            self.mailing_zip or "",
-            self.property_type_code or "",
-            self.acreage or "",
-            self.legal_description_cad or "",
-            self.date_bought_by_owner or "",
-            str(self.years_delinquent),
-            self.last_payment_date or "",
-            self.initial_delinquency_year or "",
-            self.listed_on_mls or "",
-            self.relevant_doc_link or "",
-            self.property_type_full or "",
-            self.ag_taxable_value or "",
+            self.uid or "",                                  # 1
+            self.county or "Travis",                         # 2
+            self.owner_name_cad or "",                       # 3
+            self.owner_secondary or "*None*",                # 4
+            self.property_street or "",                      # 5
+            self.property_city or "",                        # 6
+            self.property_state or "",                       # 7
+            self.property_zip or "",                         # 8
+            self.mailing_street or "",                       # 9
+            self.mailing_city or "",                         # 10
+            self.mailing_state or "",                        # 11
+            self.mailing_zip or "",                          # 12
+            self.appraised_value or "",                      # 13
+            self.taxes_due or "0",                           # 14
+            self.property_type_code or "",                   # 15
+            self.property_type_full or "",                   # 16
+            self.legal_description or "",                    # 17
+            self.acreage or "",                              # 18
+            self.ag_taxable_value or "*None*",               # 19
+            self.last_payment_date or "",                    # 20
+            self.initial_delinquency_year or "",             # 21
+            "*None*",                                        # 22 Cause #
+            "*None*",                                        # 23 Cause # Date Filed
+            "*None*",                                        # 24 Probate Case #
+            "*None*",                                        # 25 Bankruptcy #
+            "*None*",                                        # 26 Divorce #
+            self.relevant_doc_link or "",                    # 27
+            self.listed_on_mls or "",                        # 28
+            str(self.sale_date) if self.sale_date else "",   # 29
+            self.date_bought_by_owner or "",                 # 30
+            self.owner_deceased or "",                       # 31
+            self.occupancy_status or "",                     # 32
+            self.property_condition or "",                   # 33
+            self.instrument_no,                              # 34 (Hidden for deduplication)
+            str(self.date_received) if self.date_received else self.created_at.isoformat()[:10]  # 35 (Hidden for tab logic if needed)
         ]
 
 
